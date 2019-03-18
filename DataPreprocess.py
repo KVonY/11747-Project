@@ -196,8 +196,8 @@ def generate_batch_data(data, config):
     edges_out[:, :, 0] = 1.
 
     a = np.zeros((batch_size, ), dtype='int32')    # correct answer
-    fnames = ['']*batch_size
-    annots = []
+    # fnames = ['']*batch_size
+    # annots = []
 
     #------------------------------------------------------------------------
     for n in range(batch_size):
@@ -234,25 +234,41 @@ def generate_batch_data(data, config):
                     if mentions[item[0]][1]-1 < max_doc_len:
                         edges_out[n, mentions[item[0]][1]-1, ic+1] = 1.
 
-        annots.append(annotations)
-        fnames[n] = fname
+        # annots.append(annotations)
+        # fnames[n] = fname
 
     dei, deo, dri, dro = get_graph((edges_in, edges_out))
-    ret = [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro, annots, fnames]
+    ret = [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
     return ret
         
 
 
 def main():
+    # load config file
     config = load_config(config_path)
 
+    # build dict for token (vocab_dict) and char (vocab_c_dict)
     vocab_dict, vocab_c_dict = build_dict(vocab_path, vocab_char_path)
 
+    # generate train/valid examples
     train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config)
     valid_data = generate_examples(valid_path, vocab_dict, vocab_c_dict, config)
 
-    batch_train_data = generate_batch_data(train_data, config)
-    batch_valid_data = generate_batch_data(valid_data, config)
+    #------------------------------------------------------------------------
+    # training process begins
+
+    while True:
+        # building batch data
+        # batch_xxx_data is a list of batch data (len 15)
+        # [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
+        batch_train_data = generate_batch_data(train_data, config)
+
+        # training process ends
+
+        # evaluation process
+
+        # check stopping criteria
+        if True: break
 
 
 if __name__ == "__main__":
