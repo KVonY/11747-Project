@@ -10,16 +10,18 @@ unknownWordId = 400000
 
 # transform the sentence tokens to ids
 def stringListToIdList(words):
-    idList = [word2idx[word.lower()] if word in word2idx else unknownWordId for word in words]
+    idList = [word2idx[word.lower()] if word.lower() in word2idx else unknownWordId for word in words]
     return idList
 
 def preprocessJson(input_path, output_path, word2idx_path):
+    print(input_path)
     with open(input_path, 'r') as f:
         data = json.load(f)
 
     error_idx = []
     for i, sample in enumerate(data):
-        print(i)
+        if i % 10000 == 0:
+            print(i)
         concat_document = ""
         for document in sample['supports']:
             concat_document += document
@@ -39,7 +41,9 @@ def preprocessJson(input_path, output_path, word2idx_path):
     with open(output_path, 'w+') as f:
         json.dump(data, f)
 
+    print(error_idx)
 
 
+#preprocessJson("data/wikihop/dummydev.json", "data/wikihop/dummydev_coref.json", word2idx_path)
 preprocessJson("data/wikihop/train.json", "data/wikihop/train_coref.json", word2idx_path)
 preprocessJson("data/wikihop/dev.json", "data/wikihop/dev_coref.json", word2idx_path)

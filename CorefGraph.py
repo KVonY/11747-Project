@@ -1,8 +1,11 @@
 from allennlp.predictors.predictor import Predictor
+import allennlp.models.archival as archival
 
 class CorefGraph(object):
     def __init__(self, max_num_per_window):
-        self.predictor = Predictor.from_path("https://s3-us-west-2.amazonaws.com/allennlp/models/coref-model-2018.02.05.tar.gz")
+        model_path = "https://s3-us-west-2.amazonaws.com/allennlp/models/coref-model-2018.02.05.tar.gz"
+        archive = archival.load_archive(model_path, cuda_device=0)
+        self.predictor = Predictor.from_archive(archive)
         self.max_num_per_window = max_num_per_window
 
     # analyze pred, construct coref graph, and fill in data structures
