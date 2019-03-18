@@ -60,6 +60,33 @@ def build_dict(vocab_p, vocab_char_p):
     return vocab_index_dict, vocab_c_index_dict
 
 
+def load_word2vec_embedding(w2v_p, vocab_dict):
+    w2v_data = open(w2v_p, 'r').readlines()
+
+    info = w2v_data[0].split()
+    embed_dim = int(info[1])
+
+    vocab_embed = {}  # key: token, value: embedding
+
+    for line_index in range(1, len(w2v_data)):
+        line = w2v_data[line_index].split()
+        embed_part = [float(ele) for ele in line[1:]]
+        vocab_embed[line[0]] = np.array(embed_part, dtype='float32')
+
+    vocab_size = len(vocab_dict)
+    W = np.random.randn(vocab_size, embed_dim).astype('float32')
+    exist_cnt = 0
+
+    for token in vocab_dict:
+        if token in vocab_embed:
+            token_index = vocab_dict[token]
+            W[token_index,:] = vocab_embed[token]
+            exist_cnt += 1
+
+    print("%d/%d vocabs are initialized with word2vec embeddings." % (exist_cnt, vocab_size))
+    return W, embed_dim
+
+
 def get_doc_index_list(doc, token_dict, unk_dict):
     ret = []
     for token in doc:
@@ -242,13 +269,17 @@ def generate_batch_data(data, config):
     return ret
         
 
-
 def main():
     # load config file
     config = load_config(config_path)
 
     # build dict for token (vocab_dict) and char (vocab_c_dict)
     vocab_dict, vocab_c_dict = build_dict(vocab_path, vocab_char_path)
+
+    # load pre-trained embedding
+    # W: token index * token embeding
+    # embed_dim: embedding dimension
+    W, embed_dim = load_word2vec_embedding(word_embedding_path, vocab_dict)
 
     # generate train/valid examples
     train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config)
