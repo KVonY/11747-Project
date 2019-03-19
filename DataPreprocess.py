@@ -280,9 +280,9 @@ def main():
     vocab_dict, vocab_c_dict = build_dict(vocab_path, vocab_char_path)
 
     # load pre-trained embedding
-    # W: token index * token embeding
+    # W_init: token index * token embeding
     # embed_dim: embedding dimension
-    W, embed_dim = load_word2vec_embedding(word_embedding_path, vocab_dict)
+    W_init, embed_dim = load_word2vec_embedding(word_embedding_path, vocab_dict)
 
     # generate train/valid examples
     train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config)
@@ -291,7 +291,8 @@ def main():
     #------------------------------------------------------------------------
     # training process begins
     hidden_size = 64
-    batch_size = 24
+    batch_size = 24  # for test
+    # batch_size = config['batch_size']
     K = 3
     coref_model = model.CorefQA(hidden_size, batch_size, K)
     criterion = nn.CrossEntropyLoss()
