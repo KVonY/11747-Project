@@ -39,7 +39,7 @@ class BiGRU(torch.nn.Module):
 class GatedAttentionLayer(torch.nn.Module):
     def __init__(self):
         super(GatedAttentionLayer, self).__init__()
-    
+        self.softmax1 = nn.Softmax(dim=1)
     # compute gated-attention query-aware context sequence embeddings
     # context_emb, query_emb shape: (batch_size, seq_len, emb_dim)
     # output: query_aware_context (batch_size, context_seq_len, emb_dim)
@@ -47,8 +47,7 @@ class GatedAttentionLayer(torch.nn.Module):
         context_tr = context_emb.transpose(1,2) # (batch, emb_dim, seq)
         temp = torch.matmul(query_emb, context_tr)  # (batch, seq_query, seq_context)
         # softmax along query sequence dimension (for each context word, compute prob dist over all query words)
-        querySoftmax = nn.Softmax(dim=1)
-        alpha = querySoftmax(temp)  # (batch, seq_query, seq_context)
+        alpha = self.softmax1(temp)  # (batch, seq_query, seq_context)
         # for each context word, compute weighted average of queries
         attention_weighted_query = torch.matmul(query_emb.transpose(1,2), alpha).transpose(1,2) # (batch, seq_context, emb_dim)
         # final element-multiplication to get new context embedding X
