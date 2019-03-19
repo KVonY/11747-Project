@@ -20,6 +20,7 @@ class EmbeddingLayer(torch.nn.Module):
         emb = self.embedding(sentence)
         return emb
 
+# Do not remove! This is for query hidden representation! Need to use normal GRU
 class BiGRU(torch.nn.Module):
     def __init__(self, emb_size, hidden_size, batch_size):
         super(BiGRU, self).__init__()
@@ -28,7 +29,7 @@ class BiGRU(torch.nn.Module):
         self.emb_size = emb_size
         
         numLayersTimesNumDirections = 2
-        self.h0 = torch.randn(numLayersTimesNumDirections, self.batch_size, self.emb_size)
+        self.h0 = torch.randn(numLayersTimesNumDirections, self.batch_size, self.emb_size, requires_grad=True)
     
     def forward(self, input_seq_emb):
         seq_emb, hn = self.gru(input_seq_emb, self.h0)
@@ -89,9 +90,14 @@ class CorefQA(torch.nn.Module):
         self.K = K
         self.hidden_size = hidden_size
     
-    def forward(self, context, query, cand, cmask):
-        query_embedding = self.embedding(query)
-        context_embedding = self.embedding(context)
+    def forward(self, batch_data):
+        # parse input
+        context, context_mask, query, query_mask, context_char, context_char_mask, query_char, query_char_mask, \
+            candidate, candidate_mask, a, dei, deo, dri, dro = batch_data
+
+        # get embedding
+        query_embedding = self.embedding(query, query_mask, query_char, query_char_mask)
+        context_embedding = self.embedding(context, context_mask, context_char, context_char_mask)
         context_prev_layer = context_embedding
         
         # K - 1 layers of gated attention
@@ -116,7 +122,7 @@ class CorefQA(torch.nn.Module):
         final_query_hidden = query_gru(query_embedding)
 
         # the K-th layer is the answer prediction layer
-        candidate_probs = self.pred(final_context_hidden, final_query_hidden, self.hidden_size, cand, cmask)
+        candidate_probs = self.pred(final_context_hidden, final_query_hidden, self.hidden_size, candidate.float(), candidate_mask.float())
             
         # output layer
         return candidate_probs # B x Cmax

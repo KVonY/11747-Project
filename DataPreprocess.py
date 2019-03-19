@@ -1,6 +1,9 @@
 import sys
 import json
 import numpy as np
+import model
+import torch
+import torch.nn as nn
 
 
 config_path = "config.json"
@@ -287,16 +290,38 @@ def main():
 
     #------------------------------------------------------------------------
     # training process begins
+    hidden_size = 64
+    batch_size = 24
+    K = 3
+    coref_model = model.CorefQA(hidden_size, batch_size, K)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(coref_model.parameters(), lr=0.001) # TODO: use hyper-params in paper
 
     while True:
         # building batch data
         # batch_xxx_data is a list of batch data (len 15)
         # [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
         batch_train_data = generate_batch_data(train_data, config)
+        dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
 
-        # training process ends
+        # zero the parameter gradients
+        optimizer.zero_grad()
+
+        # forward pass
+        cand_probs = coref_model(batch_train_data) # B x Cmax
+
+        # compute loss
+        Cmax = len(cd[0][0]) # max number of candidates in this batch
+        batch_answer_one_hot = [[1 if cand_id == a[sample_id] else 0 for cand_id in range(Cmax)] for sample_id in range(batch_size)]
+        answer = torch.tensor(batch_answer_one_hot).float() # B x Cmax
+        loss = criterion(cand_probs, answer)
+        
+        # back-prop
+        loss.backward()
+        optimizer.step()
 
         # evaluation process
+        
 
         # check stopping criteria
         if True: break
