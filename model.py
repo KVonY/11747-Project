@@ -58,32 +58,65 @@ class GatedAttentionLayer(torch.nn.Module):
 class AnswerPredictionLayer(torch.nn.Module):
     def __init__(self):
         super(AnswerPredictionLayer, self).__init__()
-        
-    def forward(self, sequence_emb, query_emb, clozeIdx):
-        query_at_cloze = query_emb[:,clozeIdx,:]
-        context_tr = context_emb.transpose(1,2) # (batch, emb_dim, seq)
-        temp = torch.matmul(query_at_cloze, context_tr)  # (batch, 1, seq_context)
-        # softmax along context sequence dimension (compute prob dist over all context words)
-        querySoftmax = nn.Softmax(dim=2).squeeze()  # (batch, seq_context)
-        return querySoftmax
+        self.softmax1 = nn.Softmax(dim=1)
+    
+    # doc_emb: B x N x 2Dh
+    # query_emb: B x Q x 2Dh
+    # Dh: hidden layer size of normal GRU for query embedding
+    # cand: B x N x C (float)
+    # cmask: B x N (float)
+    def forward(self, doc_emb, query_emb, Dh, cand, cmask):
+        q = torch.cat([query_emb[:,-1,:Dh], query_emb[:,0,Dh:]], dim=2).transpose(1,2) # B x 2Dh x 1
+        p = torch.matmul(doc_emb, q).squeeze() # final query-aware document embedding: B x N
+        prob = self.softmax1(p) # prob dist over document words, relatedness between word to entire query: B x N
+        probmasked = prob * cmask + 1e-7  # B x N
+        sum_probmasked = torch.sum(probmasked, 1) # B x 1
+        probmasked = probmasked / sum_probmasked # B x N
+        probmasked = probmasked.unsqueezed(1) # B x 1 x N
+        probCandidate = torch.matmul(probmasked, cand).squeeze() # prob over candidates: B x C
+        return probCandidate
+
 
 class CorefQA(torch.nn.Module):
     def __init__(self, hidden_size, batch_size, K):
         super(CorefQA, self).__init__()
         self.embedding = EmbeddingLayer(emb_weights_path, emb_idx2word_path, emb_word2idx_path)
         embedding_size = 300 # GloVe 300d
-        self.gru = BiGRU(embedding_size, hidden_size, batch_size)
-        self.ga = GatedAttentionLayer()
-        self.pred = AnswerPredictionLayer()
+        self.query_grus = [BiGRU(embedding_size, hidden_size, batch_size) for _ in range(K)]
+        self.context_grus = [BiGRU(embedding_size, hidden_size, batch_size) for _ in range(K)] # TODO: swap to coref-gru
+        self.ga = GatedAttentionLayer() # non-parametrized
+        self.pred = AnswerPredictionLayer() # non-parametrized
         self.K = K
+        self.hidden_size = hidden_size
     
-    def forward(self, context, query, clozeIndex):
-        context_emb = self.gru(self.embedding(context))
-        query_emb = self.gru(self.embedding(query))
+    def forward(self, context, query, cand, cmask):
+        query_embedding = self.embedding(query)
+        context_embedding = self.embedding(context)
+        context_prev_layer = context_embedding
         
-        # K layers of gated attention
-        for i in range(self.K):
-            context_emb = ga(context_emb, query_emb)
+        # K - 1 layers of gated attention
+        for i in range(self.K - 1):
+            # run gru on query embedding
+            query_gru = self.query_grus[i]
+            query_hidden = query_gru(query_embedding)
+
+            # run coref-gru on previous context layer
+            context_gru = self.context_gru[i]
+            context_hidden = context_gru(context_prev_layer)
+            
+            # update context hidden layer using ga
+            context_prev_layer = ga(context_hidden, query_hidden)
+
+        # get K-th context hidden representation
+        context_gru = self.context_gru[-1]
+        final_context_hidden = context_gru(context_prev_layer)
+        
+        # get K-th query hidden representation
+        query_gru = self.query_grus[-1]
+        final_query_hidden = query_gru(query_embedding)
+
+        # the K-th layer is the answer prediction layer
+        candidate_probs = self.pred(final_context_hidden, final_query_hidden, self.hidden_size, cand, cmask)
             
         # output layer
-        return self.pred(context_emb, query_emb, clozeIndex)
+        return candidate_probs # B x Cmax
