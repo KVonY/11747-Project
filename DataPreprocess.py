@@ -2,6 +2,7 @@ import sys
 import json
 import numpy as np
 import model
+import EmbeddingLayer
 import torch
 import torch.nn as nn
 
@@ -197,7 +198,6 @@ def generate_batch_data(data, config):
 
     for index in batch_index:
         doc_w, qry_w, ans, cand, doc_c, qry_c, corefs, mentions, annotations, fname = data[index]
-        
         max_doc_len = max(max_doc_len, len(doc_w))
         max_qry_len = max(max_qry_len, len(qry_w))
         max_cands = max(max_cands, len(cand))
@@ -294,6 +294,10 @@ def main():
     batch_size = 24  # for test
     # batch_size = config['batch_size']
     K = 3
+
+    # use to embed token embedding and char embedding
+    input_embed_model = EmbeddingLayer.InputEmbeddingLayer(W_init, config)
+
     coref_model = model.CorefQA(hidden_size, batch_size, K)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(coref_model.parameters(), lr=0.001) # TODO: use hyper-params in paper
@@ -304,6 +308,12 @@ def main():
         # [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
         batch_train_data = generate_batch_data(train_data, config)
         dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
+
+        k_layer = 0 # TODO to be changed
+
+        doc_emb, qry_emb = input_embed_model(dw, dc, qw, qc, k_layer, K)
+        print(doc_emb.shape)
+        print(qry_emb.shape)
 
         # zero the parameter gradients
         optimizer.zero_grad()
