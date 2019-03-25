@@ -2,7 +2,6 @@ import sys
 import json
 import numpy as np
 import model2 as model
-import EmbeddingLayer
 import torch
 import torch.nn as nn
 
@@ -36,8 +35,8 @@ def load_config(config_p):
 
 
 def build_dict(vocab_p, vocab_char_p):
-    vocab_data = open(vocab_p, 'r').readlines()
-    vocab_c_data = open(vocab_char_p, 'r').readlines()
+    vocab_data = open(vocab_p, 'r', encoding="utf-8").readlines()
+    vocab_c_data = open(vocab_char_p, 'r', encoding="utf-8").readlines()
 
     vocab_dict = {}  # key: token, val: cnt
     vocab_c_dict = {}  # key: char, val: cnt
@@ -73,7 +72,7 @@ def build_dict(vocab_p, vocab_char_p):
 
 
 def load_word2vec_embedding(w2v_p, vocab_dict):
-    w2v_data = open(w2v_p, 'r').readlines()
+    w2v_data = open(w2v_p, 'r', encoding="utf-8").readlines()
 
     info = w2v_data[0].split()
     embed_dim = int(info[1])
@@ -131,7 +130,7 @@ def generate_examples(input_p, vocab_dict, vocab_c_dict, config):
 
     ret = []
 
-    with open(input_p, 'r') as infile:
+    with open(input_p, 'r', encoding="utf-8") as infile:
         for index, one_line in enumerate(infile):
             data = json.loads(one_line.rstrip('\n'))
 
@@ -182,7 +181,8 @@ def generate_examples(input_p, vocab_dict, vocab_c_dict, config):
 
             ret.append(one_sample)
             
-            if index > 30: break  # for test
+            # if index > 30: break  # for test
+            if index % 2000 == 0: print(index)
     return ret
 
 
@@ -194,10 +194,14 @@ def get_graph(edges):
     return dei, deo, dri, dro
 
 
-def generate_batch_data(data, config):
+def generate_batch_data(data, config, data_type):
     max_word_len = config['max_word_len']
     max_chains = config['max_chains']
-    batch_size = config['batch_size']
+
+    if data_type == "train":
+        batch_size = config['batch_size']
+    else:
+        batch_size = len(data)
     
     n_data = len(data)
     max_doc_len, max_qry_len, max_cands = 0, 0, 0
@@ -278,7 +282,33 @@ def generate_batch_data(data, config):
     dei, deo, dri, dro = get_graph((edges_in, edges_out))
     ret = [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
     return ret
-        
+
+
+def cal_acc(cand_probs, answer, batch_size):
+    cand_a = torch.argmax(cand_probs, dim=1)
+    acc_cnt = 0
+    for acc_i in range(batch_size):
+        if cand_a[acc_i] == answer[acc_i]: acc_cnt += 1
+    return acc_cnt/batch_size
+
+
+def cal_aver_stat(batch_acc_list, batch_loss_list):
+    n = len(batch_acc_list)
+    if n > 15:
+        acc_aver = 0
+        loss_aver = 0
+        for i in range(n-10, n):
+            acc_aver += batch_acc_list[i] / 10
+            loss_aver += batch_loss_list[i] / 10
+        print("last 10 iter -- acc: " + str(acc_aver) + ", loss: " + str(loss_aver))
+    if n > 55:
+        acc_aver = 0
+        loss_aver = 0
+        for i in range(n-50, n):
+            acc_aver += batch_acc_list[i] / 50
+            loss_aver += batch_loss_list[i] / 50
+        print("last 50 iter -- acc: " + str(acc_aver) + ", loss: " + str(loss_aver))
+
 
 def main():
     # load config file
@@ -295,6 +325,10 @@ def main():
     # generate train/valid examples
     train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config)
     valid_data = generate_examples(valid_path, vocab_dict, vocab_c_dict, config)
+
+    n_dev = len(valid_data)
+    all_valid_data = generate_batch_data(valid_data, config, "valid")
+    ans_valid = all_valid_data[10]
 
     #------------------------------------------------------------------------
     # training process begins
@@ -313,11 +347,14 @@ def main():
 
     iter_index = 0
 
+    batch_acc_list = []
+    batch_loss_list = []
+
     while True:
         # building batch data
         # batch_xxx_data is a list of batch data (len 15)
         # [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
-        batch_train_data = generate_batch_data(train_data, config)
+        batch_train_data = generate_batch_data(train_data, config, "train")
         dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
 
         # zero the parameter gradients
@@ -329,11 +366,19 @@ def main():
         loss = criterion(cand_probs, answer)
 
         # evaluation process
-        cand_a = torch.argmax(cand_probs, dim=1)
-        acc_cnt = 0
-        for acc_i in range(batch_size):
-            if cand_a[acc_i] == answer[acc_i]: acc_cnt += 1
-        print("acc: " + str(acc_cnt/batch_size) + ', loss: ' + str(loss))
+        acc_batch = cal_acc(cand_probs, answer, batch_size)
+        print("batch acc: " + str(acc_batch) + ', batch loss: ' + str(loss))
+
+        batch_acc_list.append(acc_batch)
+        batch_loss_list.append(loss)
+        cal_aver_stat(batch_acc_list, batch_loss_list)
+
+        # if iter_index % config['validation_frequency'] == 0:
+        #     cand_probs_dev = coref_model(all_valid_data)
+        #     answer_dev = torch.tensor(ans_valid).type(torch.LongTensor)
+        #     loss_dev = criterion(cand_probs_dev, answer_dev)
+        #     acc_dev = cal_acc(cand_probs_dev, answer_dev, n_dev)
+        #     print("-- dev acc: " + str(acc_dev) + ', dev loss: ' + str(loss_dev))
 
         # back-prop
         loss.backward()
