@@ -20,6 +20,7 @@ vocab_char_path = "data/wikihop/vocab.txt.chars"
 
 train_path = "data/wikihop/train_set.json"
 valid_path = "data/wikihop/valid_set.json"
+# train_path = "data/wikihop/training_small.json"
 
 
 def load_config(config_p):
@@ -291,8 +292,6 @@ def main():
     # embed_dim: embedding dimension
     W_init, embed_dim = load_word2vec_embedding(word_embedding_path, vocab_dict)
 
-    # print(W_init.shape)
-
     # generate train/valid examples
     train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config)
     valid_data = generate_examples(valid_path, vocab_dict, vocab_c_dict, config)
@@ -308,7 +307,9 @@ def main():
 
     coref_model = model.CorefQA(hidden_size, batch_size, K, W_init, config)
     criterion = nn.CrossEntropyLoss()
+    
     optimizer = torch.optim.Adam(coref_model.parameters(), lr=config['learning_rate']) # TODO: use hyper-params in paper
+    # optimizer = torch.optim.ASGD(coref_model.parameters(), lr=config['learning_rate'])
 
     iter_index = 0
 
@@ -327,18 +328,20 @@ def main():
         answer = torch.tensor(a).type(torch.LongTensor) # B x 1
         loss = criterion(cand_probs, answer)
 
-        print(loss)
-        
+        # evaluation process
+        cand_a = torch.argmax(cand_probs, dim=1)
+        acc_cnt = 0
+        for acc_i in range(batch_size):
+            if cand_a[acc_i] == answer[acc_i]: acc_cnt += 1
+        print("acc: " + str(acc_cnt/batch_size) + ', loss: ' + str(loss))
+
         # back-prop
         loss.backward()
         optimizer.step()
 
-        # evaluation process
-        
-
         # check stopping criteria
         iter_index += 1
-        if iter_index > 100: break
+        if iter_index > 200: break
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ class EmbeddingLayer(torch.nn.Module):
             kernel_size=(1, self.filter_width), 
             stride=1)
 
+
     def prepare_input(self, d, q):
         f = np.zeros(d.shape).astype('int32')
         for i in range(d.shape[0]):
@@ -152,7 +153,7 @@ class AnswerPredictionLayer(torch.nn.Module):
     def forward(self, doc_emb, query_emb, Dh, cand, cmask):
         q = torch.cat((query_emb[:,-1,:Dh], query_emb[:,0,Dh:]), dim=1) # B x 2Dh
         # q = torch.cat([query_emb[:,-1,:Dh], query_emb[:,0,Dh:]], dim=2).transpose(1,2) # B x 2Dh x 1
-        q = q[:,:,None]
+        q = q[:,:,None] # B x 2Dh x 1
         p = torch.matmul(doc_emb, q).squeeze() # final query-aware document embedding: B x N
             
         prob = self.softmax1(p).type(torch.DoubleTensor) # prob dist over document words, relatedness between word to entire query: B x N
@@ -182,7 +183,6 @@ class CorefQA(torch.nn.Module):
         self.pred = AnswerPredictionLayer() # non-parametrized
         self.K = K
         self.hidden_size = hidden_size
-
 
         self.context_gru_1 = BiGRU(embedding_size, hidden_size, batch_size)
         self.query_gru_1 = BiGRU(embedding_size, hidden_size, batch_size)
