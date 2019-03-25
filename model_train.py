@@ -181,7 +181,9 @@ def generate_examples(input_p, vocab_dict, vocab_c_dict, config):
 
             ret.append(one_sample)
             
-            # if index > 30: break  # for test
+            if len(sys.argv) > 1:
+                n_train = int(sys.argv[1])
+                if index > n_train: break  # for test
             if index % 2000 == 0: print(index)
     return ret
 
@@ -324,11 +326,11 @@ def main():
 
     # generate train/valid examples
     train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config)
-    valid_data = generate_examples(valid_path, vocab_dict, vocab_c_dict, config)
+    # valid_data = generate_examples(valid_path, vocab_dict, vocab_c_dict, config)
 
-    n_dev = len(valid_data)
-    all_valid_data = generate_batch_data(valid_data, config, "valid")
-    ans_valid = all_valid_data[10]
+    # n_dev = len(valid_data)
+    # all_valid_data = generate_batch_data(valid_data, config, "valid")
+    # ans_valid = all_valid_data[10]
 
     #------------------------------------------------------------------------
     # training process begins
@@ -355,14 +357,14 @@ def main():
         # batch_xxx_data is a list of batch data (len 15)
         # [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
         batch_train_data = generate_batch_data(train_data, config, "train")
-        dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
+        # dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
 
         # zero the parameter gradients
         optimizer.zero_grad()
 
         # forward pass
         cand_probs = coref_model(batch_train_data) # B x Cmax
-        answer = torch.tensor(a).type(torch.LongTensor) # B x 1
+        answer = torch.tensor(batch_train_data[10]).type(torch.LongTensor) # B x 1
         loss = criterion(cand_probs, answer)
 
         # evaluation process
@@ -371,6 +373,8 @@ def main():
 
         batch_acc_list.append(acc_batch)
         batch_loss_list.append(loss)
+
+        # if iter_index % config['logging_frequency'] == 0:
         cal_aver_stat(batch_acc_list, batch_loss_list)
 
         # if iter_index % config['validation_frequency'] == 0:
@@ -385,6 +389,8 @@ def main():
         optimizer.step()
 
         # check stopping criteria
+        del batch_train_data
+
         iter_index += 1
         if iter_index > 200: break
 

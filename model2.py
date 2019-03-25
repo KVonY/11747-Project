@@ -152,18 +152,15 @@ class AnswerPredictionLayer(torch.nn.Module):
     # cmask: B x N (float)
     def forward(self, doc_emb, query_emb, Dh, cand, cmask):
         q = torch.cat((query_emb[:,-1,:Dh], query_emb[:,0,Dh:]), dim=1) # B x 2Dh
-        # q = torch.cat([query_emb[:,-1,:Dh], query_emb[:,0,Dh:]], dim=2).transpose(1,2) # B x 2Dh x 1
-        q = q[:,:,None] # B x 2Dh x 1
+        q = q.unsqueeze(2) # B * 2Dh * 1
         p = torch.matmul(doc_emb, q).squeeze() # final query-aware document embedding: B x N
             
         prob = self.softmax1(p).type(torch.DoubleTensor) # prob dist over document words, relatedness between word to entire query: B x N
         probmasked = prob * cmask + 1e-7  # B x N
         
-        sum_probmasked = torch.sum(probmasked, 1) # B x 1
-        sum_probmasked = sum_probmasked[:,None]
+        sum_probmasked = torch.sum(probmasked, 1).unsqueeze(1) # B x 1
         
-        # probmasked = probmasked / sum_probmasked # B x N
-        probmasked = torch.div(probmasked, sum_probmasked) # # B x N
+        probmasked = probmasked / sum_probmasked # B x N
         probmasked = probmasked.unsqueeze(1) # B x 1 x N
 
         probCandidate = torch.matmul(probmasked, cand).squeeze() # prob over candidates: B x C
@@ -208,32 +205,22 @@ class CorefQA(torch.nn.Module):
         context_out_1 = self.context_gru_1(context_embedding)
         query_out_1 = self.query_gru_1(query_embedding)
         layer_out_1 = self.ga(context_out_1, query_out_1)
-        # print(layer_out_1.shape)
 
         #-----------------------------------------------------
         context_out_2 = self.context_gru_2(layer_out_1)
         query_out_2 = self.query_gru_2(query_embedding)
         layer_out_2 = self.ga(context_out_2, query_out_2)
-        # print(layer_out_2.shape)
 
         #-----------------------------------------------------
         context_out_3 = self.context_gru_3(layer_out_2)
         query_out_3 = self.query_gru_3(query_embedding)
-        layer_out_3 = self.ga(context_out_3, query_out_2)
-        # print(layer_out_3.shape)
-
-        final_context_hidden = context_out_3
-        final_query_hidden = query_out_3
-
-        cand = torch.from_numpy(candidate).type(torch.DoubleTensor)
-        cand_m = torch.from_numpy(candidate_mask).type(torch.DoubleTensor)
 
         candidate_probs = self.pred(
-            final_context_hidden, 
-            final_query_hidden, 
+            context_out_3, 
+            query_out_3, 
             self.hidden_size, 
-            cand, 
-            cand_m
+            torch.from_numpy(candidate).type(torch.DoubleTensor), 
+            torch.from_numpy(candidate_mask).type(torch.DoubleTensor)
             )
             
         # output layer
