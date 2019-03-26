@@ -27,11 +27,7 @@ iter_50_p = log_path + 'iter_50_acc.txt'
 dev_10_p = log_path + 'dev_10_acc.txt'
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-if device != 'cpu':
-    print("using GPU")
-else:
-    print("using CPU")
-print(device)
+print("using " + str(device))
 
 
 def load_config(config_p):
@@ -43,20 +39,20 @@ def load_config(config_p):
     else:
         config['stopping_criterion'] = False
     
-    try:
-        os.remove(iter_10_p)
-    except:
-        print('no log file')
-    
-    try:
-        os.remove(iter_50_p)
-    except:
-        print('no log file')
-    
-    try:
-        os.remove(dev_10_p)
-    except:
-        print('no log file')
+    if len(sys.argv) > 3:
+        if str(sys.argv[3]) == 'log':
+            try:
+                os.remove(iter_10_p)
+            except:
+                print('no log file')
+            try:
+                os.remove(iter_50_p)
+            except:
+                print('no log file')
+            try:
+                os.remove(dev_10_p)
+            except:
+                print('no log file')
 
     return config
 
@@ -334,8 +330,10 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
                 loss_aver += batch_loss_list[i] / 10
 
             print("iter (10) -- acc: " + str(round(acc_aver, 4)) + ", loss: " + str(round(loss_aver.data.item(), 4)))
-            with open(iter_10_p, 'a') as of1:
-                of1.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
+            if len(sys.argv) > 3:
+                if str(sys.argv[3]) == 'log':
+                    with open(iter_10_p, 'a') as of1:
+                        of1.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
 
         if n > 55:
             acc_aver = 0
@@ -344,8 +342,10 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
                 acc_aver += batch_acc_list[i] / 50
                 loss_aver += batch_loss_list[i] / 50
             print("iter (50) -- acc: " + str(round(acc_aver, 4)) + ", loss: " + str(round(loss_aver.data.item(), 4)))
-            with open(iter_50_p, 'a') as of2:
-                of2.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
+            if len(sys.argv) > 3:
+                if str(sys.argv[3]) == 'log':
+                    with open(iter_50_p, 'a') as of2:
+                        of2.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
 
     if iter_index % config['validation_frequency'] == 0:
         dev_data_batch = generate_batch_data(dev_data, config)
@@ -362,9 +362,10 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
             aver_dev_acc = sum(tmp_list) / 10
 
         print("-- dev acc: " + str(round(acc_dev, 4)) + ', aver dev acc: ' + str(round(aver_dev_acc, 4)))
-
-        with open(dev_10_p, 'a') as of3:
-            of3.writelines(str(acc_dev) + ',' + str(aver_dev_acc) + '\n')
+        if len(sys.argv) > 3:
+            if str(sys.argv[3]) == 'log':
+                with open(dev_10_p, 'a') as of3:
+                    of3.writelines(str(acc_dev) + ',' + str(aver_dev_acc) + '\n')
     
     return dev_acc_list
 
