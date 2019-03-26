@@ -307,7 +307,7 @@ def cal_aver_stat(batch_acc_list, batch_loss_list):
         for i in range(n-50, n):
             acc_aver += batch_acc_list[i] / 50
             loss_aver += batch_loss_list[i] / 50
-        print("50 iter -- acc: " + str(acc_aver) + ", loss: " + str(loss_ave.data.item()))
+        print("50 iter -- acc: " + str(acc_aver) + ", loss: " + str(loss_aver.data.item()))
 
 
 def extract_data(batch_data):
