@@ -1,24 +1,95 @@
 import torch
 import torch.nn as nn
-
-import pickle
+import torch.nn.functional as F
 import numpy as np
-
 from torch.utils.data import Dataset, DataLoader
 
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+
 class EmbeddingLayer(torch.nn.Module):
-    def __init__(self, emb_weights_path, emb_idx2word_path, emb_word2idx_path):
+    def __init__(self, W_init, config):
         super(EmbeddingLayer, self).__init__()
-        #self.embedding = nn.Embedding.from_pretrained(GloVe(name="6B"), freeze=True)
-        vector2d = pickle.load(open(emb_weights_path,'rb'))
-        self.id2words = pickle.load(open(emb_idx2word_path,'rb'))
-        self.word2idx = pickle.load(open(emb_word2idx_path,'rb'))
-        self.embedding = nn.Embedding.from_pretrained(torch.tensor(vector2d), freeze=True)
-        self.numVocab = len(self.id2words)
+
+        self.num_token = W_init.shape[0]
+        self.embed_dim = W_init.shape[1]
+        self.char_dim = config["char_dim"]
+        self.num_chars = config["num_characters"]
+        self.filter_size = config["char_filter_size"]
+        self.filter_width = config["char_filter_width"]
+
+        self.token_emb_lookup = self.get_token_embedding(W_init)
+        self.char_emb_lookup = self.get_char_embedding()
+        self.fea_emb_lookup = self.get_feat_embedding()
+
+        self.model_conv = nn.Conv2d(
+            in_channels=self.char_dim, 
+            out_channels=self.filter_size, 
+            kernel_size=(1, self.filter_width), 
+            stride=1)
+
+    # def prepare_input(self, d, q):
+    #     f = np.zeros(d.shape).astype('int32')
+    #     for i in range(d.shape[0]):
+    #         f[i,:] = np.in1d(d[i,:],q[i,:])
+    #     return f
+
+    def get_feat_embedding(self):
+        feat_embed_init = np.random.normal(0.0, 1.0, (2, 2))
+        feat_embed = nn.Embedding(2, 2)
+        feat_embed.weight.data.copy_(torch.from_numpy(feat_embed_init))
+        feat_embed.weight.requires_grad = True  # update feat embedding
+        return feat_embed
+
+    def get_token_embedding(self, W_init):
+        token_embedding = nn.Embedding(self.num_token, self.embed_dim)
+        token_embedding.weight.data.copy_(torch.from_numpy(W_init))
+        token_embedding.weight.requires_grad = True  # update token embedding
+        return token_embedding
+
+    def get_char_embedding(self):
+        char_embed_init = np.random.uniform(0.0, 1.0, (self.num_chars, self.char_dim))
+        char_emb = nn.Embedding(self.num_chars, self.char_dim)
+        char_emb.weight.data.copy_(torch.from_numpy(char_embed_init))
+        char_emb.weight.requires_grad = True  # update char embedding
+        return char_emb
+
+    def cal_char_embed(self, c_emb_init):
+        doc_c_emb_new = c_emb_init.permute(0, 3, 1, 2)
+
+        # get conv1d result: doc_c_emb
+        doc_c_tmp = self.model_conv(doc_c_emb_new)
         
-    def forward(self, sentence):  # sentence is a tensor of wordID, maybe batched
-        emb = self.embedding(sentence)
-        return emb
+        # transfer back: B, W, N, H -> B, N, H, W
+        doc_c_tmp = doc_c_tmp.permute(0, 2, 3, 1)
+        doc_c_tmp = F.relu(doc_c_tmp)
+        doc_c_emb = torch.max(doc_c_tmp, dim=2)[0]  # B x N x filter_size
+
+        return doc_c_emb
+
+    # def forward(self, dw, dc, qw, qc, k_layer, K):
+    def forward(self, doc_w, doc_c, qry_w, qry_c, k_layer, K):
+        doc_w_emb = self.token_emb_lookup(doc_w)  # B * N * emb_token_dim
+        doc_c_emb_init = self.char_emb_lookup(doc_c)  # B * N * num_chars * emb_char_dim (B * N * 15 * 10)
+        
+        qry_w_emb = self.token_emb_lookup(qry_w)
+        qry_c_emb_init = self.char_emb_lookup(qry_c)
+        
+        # fea_emb = self.fea_emb_lookup(feat)  # B * N * 2
+
+        #----------------------------------------------------------
+        doc_c_emb = self.cal_char_embed(doc_c_emb_init)  # B * N * filter_size
+        qry_c_emb = self.cal_char_embed(qry_c_emb_init)  # B * N * filter_size
+
+        # concat token emb and char emb
+        doc_emb = torch.cat((doc_w_emb, doc_c_emb), dim=2)
+        qry_emb = torch.cat((qry_w_emb, qry_c_emb), dim=2)
+
+        # if k_layer == K-1:
+        #     doc_emb = torch.cat((doc_emb, fea_emb), dim=2)
+        
+        return doc_emb, qry_emb
+
 
 # Do not remove! This is for query hidden representation! Need to use normal GRU
 class BiGRU(torch.nn.Module):
@@ -29,7 +100,7 @@ class BiGRU(torch.nn.Module):
         self.emb_size = emb_size
         
         numLayersTimesNumDirections = 2
-        self.h0 = torch.randn(numLayersTimesNumDirections, self.batch_size, self.emb_size, requires_grad=True)
+        self.h0 = torch.randn(numLayersTimesNumDirections, self.batch_size, hidden_size, requires_grad=True).to(device)
     
     def forward(self, input_seq_emb):
         seq_emb, hn = self.gru(input_seq_emb, self.h0)
@@ -66,62 +137,70 @@ class AnswerPredictionLayer(torch.nn.Module):
     # cand: B x N x C (float)
     # cmask: B x N (float)
     def forward(self, doc_emb, query_emb, Dh, cand, cmask):
-        q = torch.cat([query_emb[:,-1,:Dh], query_emb[:,0,Dh:]], dim=2).transpose(1,2) # B x 2Dh x 1
+        q = torch.cat((query_emb[:,-1,:Dh], query_emb[:,0,Dh:]), dim=1) # B x 2Dh
+        q = q.unsqueeze(2) # B * 2Dh * 1
         p = torch.matmul(doc_emb, q).squeeze() # final query-aware document embedding: B x N
-        prob = self.softmax1(p) # prob dist over document words, relatedness between word to entire query: B x N
+            
+        prob = self.softmax1(p).type(torch.DoubleTensor) # prob dist over document words, relatedness between word to entire query: B x N
         probmasked = prob * cmask + 1e-7  # B x N
-        sum_probmasked = torch.sum(probmasked, 1) # B x 1
+        
+        sum_probmasked = torch.sum(probmasked, 1).unsqueeze(1) # B x 1
+        
         probmasked = probmasked / sum_probmasked # B x N
-        probmasked = probmasked.unsqueezed(1) # B x 1 x N
+        probmasked = probmasked.unsqueeze(1) # B x 1 x N
+
         probCandidate = torch.matmul(probmasked, cand).squeeze() # prob over candidates: B x C
         return probCandidate
 
 
 class CorefQA(torch.nn.Module):
-    def __init__(self, hidden_size, batch_size, K):
+    def __init__(self, hidden_size, batch_size, K,  W_init, config):
         super(CorefQA, self).__init__()
-        self.embedding = EmbeddingLayer(emb_weights_path, emb_idx2word_path, emb_word2idx_path)
-        embedding_size = 300 # GloVe 300d
-        self.query_grus = [BiGRU(embedding_size, hidden_size, batch_size) for _ in range(K)]
-        self.context_grus = [BiGRU(embedding_size, hidden_size, batch_size) for _ in range(K)] # TODO: swap to coref-gru
+        self.embedding = EmbeddingLayer(W_init, config)
+        embedding_size = W_init.shape[1] + config['char_filter_size']
+        
         self.ga = GatedAttentionLayer() # non-parametrized
         self.pred = AnswerPredictionLayer() # non-parametrized
         self.K = K
         self.hidden_size = hidden_size
+
+        self.context_gru_1 = BiGRU(embedding_size, hidden_size, batch_size)
+        self.query_gru_1 = BiGRU(embedding_size, hidden_size, batch_size)
+
+        self.context_gru_2 = BiGRU(2*hidden_size, hidden_size, batch_size)
+        self.query_gru_2 = BiGRU(embedding_size, hidden_size, batch_size)
+
+        self.context_gru_3 = BiGRU(2*hidden_size, hidden_size, batch_size)
+        self.query_gru_3 = BiGRU(embedding_size, hidden_size, batch_size)
+
     
-    def forward(self, batch_data):
-        # parse input
-        context, context_mask, query, query_mask, context_char, context_char_mask, query_char, query_char_mask, \
-            candidate, candidate_mask, a, dei, deo, dri, dro = batch_data
+    def forward(self, context, context_char, query, query_char, candidate, candidate_mask):
+        context_embedding, query_embedding = self.embedding(
+            context, context_char, 
+            query, query_char, 
+            0, self.K)
 
-        # get embedding
-        query_embedding = self.embedding(query, query_mask, query_char, query_char_mask)
-        context_embedding = self.embedding(context, context_mask, context_char, context_char_mask)
-        context_prev_layer = context_embedding
-        
-        # K - 1 layers of gated attention
-        for i in range(self.K - 1):
-            # run gru on query embedding
-            query_gru = self.query_grus[i]
-            query_hidden = query_gru(query_embedding)
+        #-----------------------------------------------------
+        context_out_1 = self.context_gru_1(context_embedding)
+        query_out_1 = self.query_gru_1(query_embedding)
+        layer_out_1 = self.ga(context_out_1, query_out_1)
 
-            # run coref-gru on previous context layer
-            context_gru = self.context_gru[i]
-            context_hidden = context_gru(context_prev_layer)
-            
-            # update context hidden layer using ga
-            context_prev_layer = ga(context_hidden, query_hidden)
+        #-----------------------------------------------------
+        context_out_2 = self.context_gru_2(layer_out_1)
+        query_out_2 = self.query_gru_2(query_embedding)
+        layer_out_2 = self.ga(context_out_2, query_out_2)
 
-        # get K-th context hidden representation
-        context_gru = self.context_gru[-1]
-        final_context_hidden = context_gru(context_prev_layer)
-        
-        # get K-th query hidden representation
-        query_gru = self.query_grus[-1]
-        final_query_hidden = query_gru(query_embedding)
+        #-----------------------------------------------------
+        context_out_3 = self.context_gru_3(layer_out_2)
+        query_out_3 = self.query_gru_3(query_embedding)
 
-        # the K-th layer is the answer prediction layer
-        candidate_probs = self.pred(final_context_hidden, final_query_hidden, self.hidden_size, candidate.float(), candidate_mask.float())
+        candidate_probs = self.pred(
+            context_out_3, 
+            query_out_3, 
+            self.hidden_size, 
+            candidate, 
+            candidate_mask
+            )
             
         # output layer
         return candidate_probs # B x Cmax

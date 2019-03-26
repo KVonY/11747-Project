@@ -2,6 +2,5 @@
 
 ## HW3 Reimplement the SOTA
 
-Training model with BiGRU can be tested by running "model_train.py"
+Train model with BiGRU by running "python3 train.py 43284 5033 log load"
 
-Training model with BiGRU via GPU can be tested by running "train_cuda.py"

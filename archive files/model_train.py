@@ -17,8 +17,8 @@ vocab_path = "data/wikihop/vocab.txt"
 # vocab file for chars in a specific dataset
 vocab_char_path = "data/wikihop/vocab.txt.chars"
 
-train_path = "data/wikihop/train_set.json"
-valid_path = "data/wikihop/valid_set.json"
+train_path = "data/wikihop/training.json"
+valid_path = "data/wikihop/validation.json"
 
 
 def load_config(config_p):

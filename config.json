@@ -6,6 +6,7 @@
     "num_epochs": 5,
     "validation_frequency": 10,
     "validation_frequency_whole_dev": 100,
+    "model_save_frequency": 2,
     "anneal_frequency": 2500,
     "stopping_criterion": "True",
     "logging_frequency": 5,
