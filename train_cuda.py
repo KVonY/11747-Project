@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import numpy as np
 import model_cuda as model
@@ -20,6 +21,11 @@ vocab_char_path = "data/wikihop/vocab.txt.chars"
 train_path = "data/wikihop/training.json"
 valid_path = "data/wikihop/validation.json"
 
+log_path = "logs/"
+iter_10_p = log_path + 'iter_10_acc.txt'
+iter_50_p = log_path + 'iter_50_acc.txt'
+dev_10_p = log_path + 'dev_10_acc.txt'
+
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 if device != 'cpu':
     print("using GPU")
@@ -36,6 +42,21 @@ def load_config(config_p):
         config['stopping_criterion'] = True
     else:
         config['stopping_criterion'] = False
+    
+    try:
+        os.remove(iter_10_p)
+    except:
+        print('no log file')
+    
+    try:
+        os.remove(iter_50_p)
+    except:
+        print('no log file')
+    
+    try:
+        os.remove(dev_10_p)
+    except:
+        print('no log file')
 
     return config
 
@@ -292,24 +313,6 @@ def cal_acc(cand_probs, answer, batch_size):
     return acc_cnt / batch_size
 
 
-def cal_aver_stat(batch_acc_list, batch_loss_list):
-    n = len(batch_acc_list)
-    if n > 15:
-        acc_aver = 0
-        loss_aver = 0
-        for i in range(n-10, n):
-            acc_aver += batch_acc_list[i] / 10
-            loss_aver += batch_loss_list[i] / 10
-        print("10 iter -- acc: " + str(acc_aver) + ", loss: " + str(loss_aver.data.item()))
-    if n > 55:
-        acc_aver = 0
-        loss_aver = 0
-        for i in range(n-50, n):
-            acc_aver += batch_acc_list[i] / 50
-            loss_aver += batch_loss_list[i] / 50
-        print("50 iter -- acc: " + str(acc_aver) + ", loss: " + str(loss_aver.data.item()))
-
-
 def extract_data(batch_data):
     context = torch.from_numpy(batch_data[0]).type(torch.LongTensor).to(device)
     context_char = torch.from_numpy(batch_data[4]).type(torch.LongTensor).to(device)
@@ -320,9 +323,29 @@ def extract_data(batch_data):
     return context, context_char, query, query_char, candidate, candidate_mask
 
 
-def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model, criterion):
+def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model):
     if iter_index % config['logging_frequency'] == 0:
-        cal_aver_stat(batch_acc_list, batch_loss_list)
+        n = len(batch_acc_list)
+        if n > 15:
+            acc_aver = 0
+            loss_aver = 0
+            for i in range(n-10, n):
+                acc_aver += batch_acc_list[i] / 10
+                loss_aver += batch_loss_list[i] / 10
+
+            print("iter (10) -- acc: " + str(round(acc_aver, 4)) + ", loss: " + str(round(loss_aver.data.item(), 4)))
+            with open(iter_10_p, 'a') as of1:
+                of1.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
+
+        if n > 55:
+            acc_aver = 0
+            loss_aver = 0
+            for i in range(n-50, n):
+                acc_aver += batch_acc_list[i] / 50
+                loss_aver += batch_loss_list[i] / 50
+            print("iter (50) -- acc: " + str(round(acc_aver, 4)) + ", loss: " + str(round(loss_aver.data.item(), 4)))
+            with open(iter_50_p, 'a') as of2:
+                of2.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
 
     if iter_index % config['validation_frequency'] == 0:
         dev_data_batch = generate_batch_data(dev_data, config)
@@ -330,7 +353,6 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
         cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m)
 
         answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
-        loss_dev = criterion(cand_probs_dev, answer_dev)
         acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
         dev_acc_list.append(acc_dev)
 
@@ -339,7 +361,10 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
             tmp_list = dev_acc_list[len(dev_acc_list)-10: len(dev_acc_list)]
             aver_dev_acc = sum(tmp_list) / 10
 
-        print("-- dev acc: " + str(acc_dev) + ', aver dev acc: ' + str(aver_dev_acc) + ', dev loss: ' + str(loss_dev.data.item()))
+        print("-- dev acc: " + str(round(acc_dev, 4)) + ', aver dev acc: ' + str(round(aver_dev_acc, 4)))
+
+        with open(dev_10_p, 'a') as of3:
+            of3.writelines(str(acc_dev) + ',' + str(aver_dev_acc) + '\n')
     
     return dev_acc_list
 
@@ -402,7 +427,7 @@ def main():
         acc_batch = cal_acc(cand_probs, answer, batch_size)
         batch_acc_list.append(acc_batch)
         batch_loss_list.append(loss)
-        dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model, criterion)
+        dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model)
 
         # back-prop
         loss.backward()
