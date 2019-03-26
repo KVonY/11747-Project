@@ -19,7 +19,6 @@ vocab_char_path = "data/wikihop/vocab.txt.chars"
 
 train_path = "data/wikihop/train_set.json"
 valid_path = "data/wikihop/valid_set.json"
-# train_path = "data/wikihop/training_small.json"
 
 
 def load_config(config_p):
@@ -122,13 +121,14 @@ def get_char_index_list(doc, char_dict, max_word_len):
     return ret
 
 
-def generate_examples(input_p, vocab_dict, vocab_c_dict, config):
+def generate_examples(input_p, vocab_dict, vocab_c_dict, config, data_type):
     max_chains = config['max_chains']
     max_doc_len = config['max_doc_len']
     num_unks = config["num_unknown_types"]
     max_word_len = config["max_word_len"]
 
     ret = []
+    print("begin loading " + data_type + " data")
 
     with open(input_p, 'r', encoding="utf-8") as infile:
         for index, one_line in enumerate(infile):
@@ -181,10 +181,15 @@ def generate_examples(input_p, vocab_dict, vocab_c_dict, config):
 
             ret.append(one_sample)
             
-            if len(sys.argv) > 1:
+            if data_type == "train" and len(sys.argv) > 2:
                 n_train = int(sys.argv[1])
-                if index > n_train: break  # for test
-            if index % 2000 == 0: print(index)
+                if index > n_train: break  # for train
+            
+            if data_type == "dev" and len(sys.argv) > 2:
+                n_dev = int(sys.argv[2])
+                if index > n_dev: break  # for dev
+            
+            if index % 2000 == 0: print("loading progress: " + str(index))
     return ret
 
 
@@ -196,14 +201,11 @@ def get_graph(edges):
     return dei, deo, dri, dro
 
 
-def generate_batch_data(data, config, data_type):
+def generate_batch_data(data, config):
     max_word_len = config['max_word_len']
     max_chains = config['max_chains']
 
-    if data_type == "train":
-        batch_size = config['batch_size']
-    else:
-        batch_size = len(data)
+    batch_size = config['batch_size']
     
     n_data = len(data)
     max_doc_len, max_qry_len, max_cands = 0, 0, 0
@@ -325,12 +327,8 @@ def main():
     W_init, embed_dim = load_word2vec_embedding(word_embedding_path, vocab_dict)
 
     # generate train/valid examples
-    train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config)
-    # valid_data = generate_examples(valid_path, vocab_dict, vocab_c_dict, config)
-
-    # n_dev = len(valid_data)
-    # all_valid_data = generate_batch_data(valid_data, config, "valid")
-    # ans_valid = all_valid_data[10]
+    train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config, "train")
+    dev_data = generate_examples(valid_path, vocab_dict, vocab_c_dict, config, "dev")
 
     #------------------------------------------------------------------------
     # training process begins
@@ -348,7 +346,6 @@ def main():
     # optimizer = torch.optim.ASGD(coref_model.parameters(), lr=config['learning_rate'])
 
     iter_index = 0
-
     batch_acc_list = []
     batch_loss_list = []
 
@@ -356,7 +353,7 @@ def main():
         # building batch data
         # batch_xxx_data is a list of batch data (len 15)
         # [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
-        batch_train_data = generate_batch_data(train_data, config, "train")
+        batch_train_data = generate_batch_data(train_data, config)
         # dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
 
         # zero the parameter gradients
@@ -374,15 +371,18 @@ def main():
         batch_acc_list.append(acc_batch)
         batch_loss_list.append(loss)
 
-        # if iter_index % config['logging_frequency'] == 0:
-        cal_aver_stat(batch_acc_list, batch_loss_list)
+        if iter_index % config['logging_frequency'] == 0:
+            cal_aver_stat(batch_acc_list, batch_loss_list)
 
-        # if iter_index % config['validation_frequency'] == 0:
-        #     cand_probs_dev = coref_model(all_valid_data)
-        #     answer_dev = torch.tensor(ans_valid).type(torch.LongTensor)
-        #     loss_dev = criterion(cand_probs_dev, answer_dev)
-        #     acc_dev = cal_acc(cand_probs_dev, answer_dev, n_dev)
-        #     print("-- dev acc: " + str(acc_dev) + ', dev loss: ' + str(loss_dev))
+        if iter_index % config['validation_frequency'] == 0:
+            n_dev = len(dev_data)
+            dev_data_batch = generate_batch_data(dev_data, config)
+            ans_dev= dev_data_batch[10]
+            cand_probs_dev = coref_model(dev_data_batch)
+            answer_dev = torch.tensor(ans_dev).type(torch.LongTensor)
+            loss_dev = criterion(cand_probs_dev, answer_dev)
+            acc_dev = cal_acc(cand_probs_dev, answer_dev, n_dev)
+            print("-- dev acc: " + str(acc_dev) + ', dev loss: ' + str(loss_dev))
 
         # back-prop
         loss.backward()
@@ -392,7 +392,7 @@ def main():
         del batch_train_data
 
         iter_index += 1
-        if iter_index > 200: break
+        if iter_index > 100000: break
 
 
 if __name__ == "__main__":

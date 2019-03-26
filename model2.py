@@ -1,11 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-# import pickle
 import numpy as np
-
 from torch.utils.data import Dataset, DataLoader
+
 
 class EmbeddingLayer(torch.nn.Module):
     def __init__(self, W_init, config):
@@ -28,14 +26,12 @@ class EmbeddingLayer(torch.nn.Module):
             kernel_size=(1, self.filter_width), 
             stride=1)
 
-
     def prepare_input(self, d, q):
         f = np.zeros(d.shape).astype('int32')
         for i in range(d.shape[0]):
             f[i,:] = np.in1d(d[i,:],q[i,:])
         return f
 
-    
     def get_feat_embedding(self):
         feat_embed_init = np.random.normal(0.0, 1.0, (2, 2))
         feat_embed = nn.Embedding(2, 2)
@@ -43,13 +39,11 @@ class EmbeddingLayer(torch.nn.Module):
         feat_embed.weight.requires_grad = True  # update feat embedding
         return feat_embed
 
-
     def get_token_embedding(self, W_init):
         token_embedding = nn.Embedding(self.num_token, self.embed_dim)
         token_embedding.weight.data.copy_(torch.from_numpy(W_init))
         token_embedding.weight.requires_grad = True  # update token embedding
         return token_embedding
-
 
     def get_char_embedding(self):
         char_embed_init = np.random.uniform(0.0, 1.0, (self.num_chars, self.char_dim))
@@ -58,7 +52,6 @@ class EmbeddingLayer(torch.nn.Module):
         char_emb.weight.requires_grad = True  # update char embedding
         return char_emb
 
-    
     def cal_char_embed(self, c_emb_init):
         doc_c_emb_new = c_emb_init.permute(0, 3, 1, 2)
 
@@ -71,7 +64,6 @@ class EmbeddingLayer(torch.nn.Module):
         doc_c_emb = torch.max(doc_c_tmp, dim=2)[0]  # B x N x filter_size
 
         return doc_c_emb
-
 
     def forward(self, dw, dc, qw, qc, k_layer, K):
         # doc_w: B * N
@@ -92,8 +84,8 @@ class EmbeddingLayer(torch.nn.Module):
         fea_emb = self.fea_emb_lookup(feat)  # B * N * 2
 
         #----------------------------------------------------------
-        doc_c_emb = self.cal_char_embed(doc_c_emb_init)
-        qry_c_emb = self.cal_char_embed(qry_c_emb_init)
+        doc_c_emb = self.cal_char_embed(doc_c_emb_init)  # B * N * filter_size
+        qry_c_emb = self.cal_char_embed(qry_c_emb_init)  # B * N * filter_size
 
         # concat token emb and char emb
         doc_emb = torch.cat((doc_w_emb, doc_c_emb), dim=2)
@@ -171,9 +163,8 @@ class CorefQA(torch.nn.Module):
     def __init__(self, hidden_size, batch_size, K,  W_init, config):
         super(CorefQA, self).__init__()
         self.embedding = EmbeddingLayer(W_init, config)
-        # embedding_size = W_init.shape[1]
-        # embedding_size = 100 # GloVe 300d
-        embedding_size = 150
+        embedding_size = W_init.shape[1] + config['char_filter_size']
+        # embedding_size = 150
         # self.query_grus = [BiGRU(embedding_size, hidden_size, batch_size) for _ in range(K)]
         # self.context_grus = [BiGRU(embedding_size, hidden_size, batch_size) for _ in range(K)] # TODO: swap to coref-gru
         self.ga = GatedAttentionLayer() # non-parametrized
