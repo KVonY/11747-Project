@@ -1,85 +1,12 @@
 import tensorflow as tf
 import numpy as np
 import torch
+import torch.nn as nn
 
 def glorot(d1,d2):
     return np.sqrt(6./(d1+d2))
 
-class GRU(object):
-    def __init__(self, idim, odim, layername, reverse=False, reuse=False):
-        def _gate_params(insize, outsize, name):
-            gate = {}
-            gate["W"] = tf.get_variable(
-                "W"+name,
-                initializer=tf.random_normal(
-                    (insize,outsize), 
-                    mean=0.0, stddev=glorot(insize,outsize)),
-                dtype=tf.float32)
-            gate["U"] = tf.get_variable(
-                "U"+name,
-                initializer=tf.random_normal(
-                    (outsize,outsize),
-                    mean=0.0, stddev=glorot(outsize,outsize)),
-                dtype=tf.float32)
-            gate["b"] = tf.get_variable(
-                "b"+name,
-                initializer=tf.zeros((outsize,)),
-                dtype=tf.float32)
-            return gate
-
-        with tf.variable_scope(layername, reuse=reuse):
-            self.resetgate = _gate_params(idim, odim, "r")
-            self.updategate = _gate_params(idim, odim, "u")
-            self.hiddengate = _gate_params(idim, odim, "h")
-        self.Wstacked = tf.concat([self.resetgate["W"], self.updategate["W"],
-                self.hiddengate["W"]], axis=1) # Din x 3Dout
-        self.Ustacked = tf.concat([self.resetgate["U"], self.updategate["U"],
-                self.hiddengate["U"]], axis=1) # Dr x 3Dout
-        self.reverse = reverse
-        self.out_dim = odim
-
-    def _gru_cell(self, prev, inp, rgate, ugate, hgate):
-        def _slice(a, n):
-            s = a[:,n*self.out_dim:(n+1)*self.out_dim]
-            return s
-        hid_to_hid = tf.matmul(prev, self.Ustacked) # B x 3Dout
-        r = tf.sigmoid(_slice(inp,0) + _slice(hid_to_hid,0) + rgate["b"])
-        z = tf.sigmoid(_slice(inp,1) + _slice(hid_to_hid,1) + ugate["b"])
-        ht = tf.tanh(_slice(inp,2) + r*_slice(hid_to_hid,2) + hgate["b"])
-        h = (1.-z)*prev + z*ht
-        return h
-
-    def _step_gru(self, prev, inps):
-        # prev : B x Do
-        # inps : (B x Di, B)
-        elems, mask = inps[0], inps[1]
-        new = self._gru_cell(prev, elems, 
-                self.resetgate, self.updategate, self.hiddengate)
-        new.set_shape([None,self.out_dim])
-        newmasked = tf.expand_dims((1.-tf.to_float(mask)),axis=1)*prev + \
-                tf.expand_dims(tf.to_float(mask),axis=1)*new
-        return newmasked
-
-    def compute(self, init, inp, mask):
-        # init : B x Do
-        # inp : B x N x Di
-        # mask : B x N
-        if self.reverse:
-            inp = tf.reverse(inp, [1])
-            mask = tf.reverse(mask, [1])
-        if init is None:
-            init = tf.zeros((tf.shape(inp)[0],self.out_dim), dtype=tf.float32)
-        inpre = tf.transpose(inp, perm=(1,0,2)) # N x B x Di
-        maskre = tf.transpose(mask, perm=(1,0)) # N x B
-        # precompute input
-        Xpre = tf.tensordot(inpre, self.Wstacked, axes=[[2],[0]]) # N x B x 3Dout
-        outs = tf.transpose(tf.scan(self._step_gru, (Xpre, maskre), 
-                initializer=init), perm=(1,0,2)) # B x N x Do
-        if self.reverse:
-            outs = tf.reverse(outs, [1])
-        return outs
-
-class CorefGRU(object):
+class CorefGRU(nn.Module):
     """Coref-GRU model which uses coreference to update hidden states of a GRU.
 
     This class is designed to work with any Directed Acyclic Graph (DAG) of
@@ -132,6 +59,7 @@ class CorefGRU(object):
 
     def __init__(self, num_relations, input_dim, relation_dim, max_chains, 
             reverse=False, concat=False):
+        super(CorefGRU, self).__init__()
         self.num_relations = num_relations
         self.rdims = relation_dim
         self.input_dim = input_dim
@@ -181,7 +109,7 @@ class CorefGRU(object):
         self.mem_init = torch.zeros((self.max_chains, self.rdims),
                                  dtype=torch.float32)
 
-    def compute(self, X, M, Ei, Eo, Ri, Ro, init=None, mem_init=None):
+    def forward(self, X, M, Ei, Eo, Ri, Ro, init=None, mem_init=None):
         """Apply Coref-GRU layer to the given tensors.
 
         The input DAG is parameterized using four tensors described below.
@@ -254,12 +182,12 @@ class CorefGRU(object):
             mem_init = self.mem_init.unsqueeze(0).repeat(X.shape[0], 1, 1)
         agg_init = torch.zeros((X.shape[0], self.num_relations),
                 dtype = torch.float32)
-        hnew, mnew, agg = self._step((mem_init, agg_init), (Xre, Xpre, Mre, Eire, Eore, Rire, Rore))
+        hnew, mnew, agg = self._step((mem_init, agg_init), (Xre[0], Xpre[0], Mre[0], Eire[0], Eore[0], Rire[0], Rore[0]))
         outs = hnew.unsqueeze(0)
         mems = mnew.unsqueeze(0)
         aggs = agg.unsqueeze(0)
-        for i in range(Xre.shape[0] - 1):
-            hnow, mnow, anow = self._step((mnew, agg), (Xre, Xpre, Mre, Eire, Eore, Rire, Rore))
+        for i in range(1, Xre.shape[0]):
+            hnow, mnow, anow = self._step((mnew, agg), (Xre[i], Xpre[i], Mre[i], Eire[i], Eore[i], Rire[i], Rore[i]))
             outs = torch.cat((outs, hnow.unsqueeze(0)), 0)
             mems = torch.cat((mems, hnow.unsqueeze(0)), 0)
             aggs = torch.cat((aggs, hnow.unsqueeze(0)), 0)
@@ -280,22 +208,21 @@ class CorefGRU(object):
     def _attention(self, x, c_r, e, r):
         EPS = 1e-100
         v = torch.tensordot(r, self.Watt, [[2],[0]]) # B x C x Din
-        actvs = tf.squeeze(tf.matmul(v,x.unsqueeze(2)),axis=2) # B x C
-        alphas_m = tf.exp(actvs)*e + EPS # B x C
-        return alphas_m/tf.reduce_sum(alphas_m, 1, keep_dims=True) # B x C
+        actvs = torch.squeeze(torch.mm(v,x.unsqueeze(2)),axis=2) # B x C
+        alphas_m = torch.exp(actvs)*e + EPS # B x C
+        return alphas_m/torch.sum(alphas_m, 1, keepdim=True) # B x C
 
     def _hid_prev(self, x, c_r, e, r):
         if not self.concat:
             alphas = self._attention(x, c_r, e, r) # B x C
-            agg = tf.transpose(
-                    tf.expand_dims(alphas, axis=2)*r, perm=[0,2,1]) # B x R x C
+            agg = torch.unsqueeze(alphas, 2)*r
+            agg = agg.permute(0, 2, 1)
         else:
-            agg = tf.transpose(r*tf.expand_dims(e, axis=2), 
-                    perm=[0,2,1])/tf.expand_dims(
-                            tf.reduce_sum(e, axis=1, keep_dims=True), axis=1) # B x R x C
-        mem = tf.matmul(agg, c_r) # B x R x Dr
-        return tf.reshape(mem, [-1, self.num_relations*self.rdims]), \
-                tf.reduce_sum(agg, axis=2) # B x RDr
+            agg = torch.unsqueeze(alphas, 2)*r
+            agg = agg.permute(0, 2, 1)/torch.unsqueeze(torch.sum(e, 1, keepdim=True), 1) # B x R x C
+        mem = torch.mm(agg, c_r) # B x R x Dr
+        return torch.reshape(mem, [-1, self.num_relations*self.rdims]), \
+                torch.sum(agg, 2) # B x RDr
 
     def _step(self, prev, inps):
         hprev, mprev = prev[0], prev[1] # hprev : B x Dout, mprev : B x C x Dr
@@ -306,14 +233,17 @@ class CorefGRU(object):
                 self.hiddengate) # B x Dout, B x R x C
         hnew_r = torch.reshape(hnew, 
                 [x.shape[0], self.num_relations, self.rdims]) # B x R x Dr
-        ro1hot = tf.one_hot(ro, self.num_relations, axis=2) # B x C x R
-        mnew = tf.matmul(ro1hot, hnew_r) # B x C x Dr
+        ro_re = ro.unsqueeze(2)
+        B, N = ro.shape[0], ro.shape[1]
+        ro1hot = torch.zeros(B, N, self.num_relations).scatter_(2, ro_re.data, 1)  # B x C x R
+        # ro1hot = tf.one_hot(ro, self.num_relations, axis=2) # B x C x R
+        mnew = torch.mm(ro1hot, hnew_r) # B x C x Dr
         hnew.set_shape([None,self.output_dim])
 
-        m_r = tf.expand_dims(m, axis=1) # B x 1
+        m_r = torch.unsqueeze(m, 1) # B x 1
         hnew = (1.-m_r)*hprev + m_r*hnew
 
-        eo_r = tf.expand_dims(m_r*eo, axis=2) # B x C x 1
+        eo_r = torch.unsqueeze(m_r*eo, 2) # B x C x 1
         mnew = (1.-eo_r)*mprev + eo_r*mnew
 
         return hnew, mnew, agg
@@ -322,11 +252,16 @@ class CorefGRU(object):
         def _slice(a, n):
             s = a[:,n*self.output_dim:(n+1)*self.output_dim]
             return s
-        r1hot = tf.one_hot(ri, self.num_relations) # B x C x R
+        ri_re = ri.unsqueeze(2)
+        B, N = ri.shape[0], ri.shape[1]
+        print(ri.shape)
+
+        r1hot = torch.zeros(B, N, self.num_relations).scatter_(2, ri_re.data, 1)  # B x C x R
+        # r1hot = tf.one_hot(ri, self.num_relations) # B x C x R
         prev, agg = self._hid_prev(x, c, e, r1hot) # B x RDr
-        hid_to_hid = tf.matmul(prev, self.Ustacked) # B x 3Dout
-        r = tf.sigmoid(_slice(xp,0) + _slice(hid_to_hid,0) + rgate["b"])
-        z = tf.sigmoid(_slice(xp,1) + _slice(hid_to_hid,1) + ugate["b"])
-        ht = tf.tanh(_slice(xp,2) + r*_slice(hid_to_hid,2) + hgate["b"])
+        hid_to_hid = torch.mm(prev, self.Ustacked) # B x 3Dout
+        r = torch.sigmoid(_slice(xp,0) + _slice(hid_to_hid,0) + rgate["b"])
+        z = torch.sigmoid(_slice(xp,1) + _slice(hid_to_hid,1) + ugate["b"])
+        ht = torch.tanh(_slice(xp,2) + r*_slice(hid_to_hid,2) + hgate["b"])
         h = (1.-z)*prev + z*ht
         return h, agg
