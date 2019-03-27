@@ -160,8 +160,7 @@ class CorefQA(torch.nn.Module):
         self.embedding = EmbeddingLayer(W_init, config)
         embedding_size = W_init.shape[1] + config['char_filter_size']
 
-
-
+        #-----------------------------------------------------------------
         self.num_relations = config['num_relations']
         self.relation_dims = config['relation_dims']
         self.max_chains = config['max_chains']
@@ -205,7 +204,6 @@ class CorefQA(torch.nn.Module):
         context_out_1_f, _, _ = self.context_crf_1_f(context_emb, m_dw, dei, deo, dri, dro)
         context_out_1_b, _, _ = self.context_crf_1_b(context_emb, m_dw, dei, deo, dri, dro)
         context_out_1 = torch.cat((context_out_1_f, context_out_1_b), dim=2)
-        print(context_out_1.shape)
         query_out_1 = self.query_gru_1(query_emb)
         layer_out_1 = self.ga(context_out_1, query_out_1)
 
