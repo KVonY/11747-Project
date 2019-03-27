@@ -1,7 +1,7 @@
 import sys
 import json
 import numpy as np
-import model
+import model2 as model
 import EmbeddingLayer
 import torch
 import torch.nn as nn
@@ -20,6 +20,8 @@ vocab_char_path = "data/wikihop/vocab.txt.chars"
 
 train_path = "data/wikihop/train_set.json"
 valid_path = "data/wikihop/valid_set.json"
+
+train_path = "data/wikihop/training_small.json"
 
 
 def load_config(config_p):
@@ -60,6 +62,13 @@ def build_dict(vocab_p, vocab_char_p):
     
     for index, one_tuple in enumerate(vocal_c_ordered_list):
         vocab_c_index_dict[one_tuple[0]] = index
+
+    # test_out1 = open("tmp_word_dict.txt", 'w')
+    # test_out2 = open("tmp_char_dict.txt", 'w')
+    # for ele in vocab_index_dict:
+    #     test_out1.writelines(str(ele) + '\t' + str(vocab_index_dict[ele]) + '\n')
+    # for ele in vocab_c_index_dict:
+    #     test_out2.writelines(str(ele) + '\t' + str(vocab_c_index_dict[ele]) + '\n')
 
     return vocab_index_dict, vocab_c_index_dict
 
@@ -284,6 +293,8 @@ def main():
     # embed_dim: embedding dimension
     W_init, embed_dim = load_word2vec_embedding(word_embedding_path, vocab_dict)
 
+    # print(W_init.shape)
+
     # generate train/valid examples
     train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config)
     valid_data = generate_examples(valid_path, vocab_dict, vocab_c_dict, config)
@@ -291,16 +302,18 @@ def main():
     #------------------------------------------------------------------------
     # training process begins
     hidden_size = 64
-    batch_size = 24  # for test
-    # batch_size = config['batch_size']
+    # batch_size = 24  # for test
+    batch_size = config['batch_size']
     K = 3
 
     # use to embed token embedding and char embedding
-    input_embed_model = EmbeddingLayer.InputEmbeddingLayer(W_init, config)
+    # input_embed_model = EmbeddingLayer.InputEmbeddingLayer(W_init, config)
 
-    coref_model = model.CorefQA(hidden_size, batch_size, K)
+    coref_model = model.CorefQA(hidden_size, batch_size, K, W_init, config)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(coref_model.parameters(), lr=0.001) # TODO: use hyper-params in paper
+    optimizer = torch.optim.Adam(coref_model.parameters(), lr=0.0005) # TODO: use hyper-params in paper
+
+    iter_index = 0
 
     while True:
         # building batch data
@@ -309,11 +322,10 @@ def main():
         batch_train_data = generate_batch_data(train_data, config)
         dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
 
-        k_layer = 0 # TODO to be changed
-
-        doc_emb, qry_emb = input_embed_model(dw, dc, qw, qc, k_layer, K)
-        print(doc_emb.shape)
-        print(qry_emb.shape)
+        # k_layer = 0 # TODO to be changed
+        # doc_emb, qry_emb = input_embed_model(dw, dc, qw, qc, k_layer, K)
+        # print(doc_emb.shape)
+        # print(qry_emb.shape)
 
         # zero the parameter gradients
         optimizer.zero_grad()
@@ -322,10 +334,13 @@ def main():
         cand_probs = coref_model(batch_train_data) # B x Cmax
 
         # compute loss
-        Cmax = len(cd[0][0]) # max number of candidates in this batch
-        batch_answer_one_hot = [[1 if cand_id == a[sample_id] else 0 for cand_id in range(Cmax)] for sample_id in range(batch_size)]
-        answer = torch.tensor(batch_answer_one_hot).float() # B x Cmax
+        # Cmax = len(cd[0][0]) # max number of candidates in this batch
+        # batch_answer_one_hot = [[1 if cand_id == a[sample_id] else 0 for cand_id in range(Cmax)] for sample_id in range(batch_size)]
+        # answer = torch.tensor(batch_answer_one_hot).type(torch.LongTensor) # B x Cmax
+        answer = torch.tensor(a).type(torch.LongTensor) # B x 1
         loss = criterion(cand_probs, answer)
+
+        print(loss)
         
         # back-prop
         loss.backward()
@@ -335,7 +350,8 @@ def main():
         
 
         # check stopping criteria
-        if True: break
+        iter_index += 1
+        if iter_index > 100: break
 
 
 if __name__ == "__main__":

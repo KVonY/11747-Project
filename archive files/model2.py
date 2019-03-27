@@ -4,8 +4,6 @@ import torch.nn.functional as F
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
 
 class EmbeddingLayer(torch.nn.Module):
     def __init__(self, W_init, config):
@@ -28,11 +26,11 @@ class EmbeddingLayer(torch.nn.Module):
             kernel_size=(1, self.filter_width), 
             stride=1)
 
-    # def prepare_input(self, d, q):
-    #     f = np.zeros(d.shape).astype('int32')
-    #     for i in range(d.shape[0]):
-    #         f[i,:] = np.in1d(d[i,:],q[i,:])
-    #     return f
+    def prepare_input(self, d, q):
+        f = np.zeros(d.shape).astype('int32')
+        for i in range(d.shape[0]):
+            f[i,:] = np.in1d(d[i,:],q[i,:])
+        return f
 
     def get_feat_embedding(self):
         feat_embed_init = np.random.normal(0.0, 1.0, (2, 2))
@@ -67,15 +65,23 @@ class EmbeddingLayer(torch.nn.Module):
 
         return doc_c_emb
 
-    # def forward(self, dw, dc, qw, qc, k_layer, K):
-    def forward(self, doc_w, doc_c, qry_w, qry_c, k_layer, K):
+    def forward(self, dw, dc, qw, qc, k_layer, K):
+        # doc_w: B * N
+        # doc_c: B * N * 10
+        doc_w = torch.from_numpy(dw).type(torch.LongTensor)
+        doc_c = torch.from_numpy(dc).type(torch.LongTensor)
+        qry_w = torch.from_numpy(qw).type(torch.LongTensor)
+        qry_c = torch.from_numpy(qc).type(torch.LongTensor)
+        feat = torch.from_numpy(self.prepare_input(doc_w, qry_w)).type(torch.LongTensor)
+    
+        #----------------------------------------------------------
         doc_w_emb = self.token_emb_lookup(doc_w)  # B * N * emb_token_dim
         doc_c_emb_init = self.char_emb_lookup(doc_c)  # B * N * num_chars * emb_char_dim (B * N * 15 * 10)
         
         qry_w_emb = self.token_emb_lookup(qry_w)
         qry_c_emb_init = self.char_emb_lookup(qry_c)
         
-        # fea_emb = self.fea_emb_lookup(feat)  # B * N * 2
+        fea_emb = self.fea_emb_lookup(feat)  # B * N * 2
 
         #----------------------------------------------------------
         doc_c_emb = self.cal_char_embed(doc_c_emb_init)  # B * N * filter_size
@@ -85,8 +91,8 @@ class EmbeddingLayer(torch.nn.Module):
         doc_emb = torch.cat((doc_w_emb, doc_c_emb), dim=2)
         qry_emb = torch.cat((qry_w_emb, qry_c_emb), dim=2)
 
-        # if k_layer == K-1:
-        #     doc_emb = torch.cat((doc_emb, fea_emb), dim=2)
+        if k_layer == K-1:
+            doc_emb = torch.cat((doc_emb, fea_emb), dim=2)
         
         return doc_emb, qry_emb
 
@@ -100,7 +106,7 @@ class BiGRU(torch.nn.Module):
         self.emb_size = emb_size
         
         numLayersTimesNumDirections = 2
-        self.h0 = torch.randn(numLayersTimesNumDirections, self.batch_size, hidden_size, requires_grad=True).to(device)
+        self.h0 = torch.randn(numLayersTimesNumDirections, self.batch_size, hidden_size, requires_grad=True)
     
     def forward(self, input_seq_emb):
         seq_emb, hn = self.gru(input_seq_emb, self.h0)
@@ -158,7 +164,9 @@ class CorefQA(torch.nn.Module):
         super(CorefQA, self).__init__()
         self.embedding = EmbeddingLayer(W_init, config)
         embedding_size = W_init.shape[1] + config['char_filter_size']
-        
+        # embedding_size = 150
+        # self.query_grus = [BiGRU(embedding_size, hidden_size, batch_size) for _ in range(K)]
+        # self.context_grus = [BiGRU(embedding_size, hidden_size, batch_size) for _ in range(K)] # TODO: swap to coref-gru
         self.ga = GatedAttentionLayer() # non-parametrized
         self.pred = AnswerPredictionLayer() # non-parametrized
         self.K = K
@@ -174,7 +182,11 @@ class CorefQA(torch.nn.Module):
         self.query_gru_3 = BiGRU(embedding_size, hidden_size, batch_size)
 
     
-    def forward(self, context, context_char, query, query_char, candidate, candidate_mask):
+    def forward(self, batch_data):
+        # parse input
+        context, context_mask, query, query_mask, context_char, context_char_mask, query_char, query_char_mask, \
+            candidate, candidate_mask, a, dei, deo, dri, dro = batch_data
+
         context_embedding, query_embedding = self.embedding(
             context, context_char, 
             query, query_char, 
@@ -198,8 +210,8 @@ class CorefQA(torch.nn.Module):
             context_out_3, 
             query_out_3, 
             self.hidden_size, 
-            candidate, 
-            candidate_mask
+            torch.from_numpy(candidate).type(torch.DoubleTensor), 
+            torch.from_numpy(candidate_mask).type(torch.DoubleTensor)
             )
             
         # output layer

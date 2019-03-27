@@ -2,12 +2,11 @@ import sys
 import os
 import json
 import numpy as np
-import model as model
+import model_cuda as model
 import torch
 import torch.nn as nn
 
 
-# config path
 config_path = "config.json"
 
 # use GloVe pre-trained embedding
@@ -19,21 +18,14 @@ vocab_path = "data/wikihop/vocab.txt"
 # vocab file for chars in a specific dataset
 vocab_char_path = "data/wikihop/vocab.txt.chars"
 
-# train and dev set
 train_path = "data/wikihop/training.json"
 valid_path = "data/wikihop/validation.json"
 
-# model save path
-torch_model_p = "model/coref.pkl"
-
-# log files
 log_path = "logs/"
 iter_10_p = log_path + 'iter_10_acc.txt'
 iter_50_p = log_path + 'iter_50_acc.txt'
 dev_10_p = log_path + 'dev_10_acc.txt'
-dev_whole_p = log_path + 'dev_whole_acc.txt'
 
-# check CPU or GPU
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print("using " + str(device))
 
@@ -59,10 +51,6 @@ def load_config(config_p):
                 print('no log file')
             try:
                 os.remove(dev_10_p)
-            except:
-                print('no log file')
-            try:
-                os.remove(dev_whole_p)
             except:
                 print('no log file')
 
@@ -230,22 +218,16 @@ def get_graph(edges):
     return dei, deo, dri, dro
 
 
-def generate_batch_data(data, config, data_type, batch_i):
+def generate_batch_data(data, config):
     max_word_len = config['max_word_len']
     max_chains = config['max_chains']
+
     batch_size = config['batch_size']
     
     n_data = len(data)
     max_doc_len, max_qry_len, max_cands = 0, 0, 0
-    
-    if batch_i == -1:
-        batch_index = np.random.choice(n_data, batch_size, replace=True)
-    else:
-        batch_index = []
-        start_i = batch_i * batch_size
-        end_i = (batch_i + 1) * batch_size
-        for tmp_i in range(start_i, end_i):
-            batch_index.append(tmp_i)
+
+    batch_index = np.random.choice(n_data, batch_size, replace=True)
 
     for index in batch_index:
         doc_w, qry_w, ans, cand, doc_c, qry_c, corefs, mentions, annotations, fname = data[index]
@@ -366,8 +348,7 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
                         of2.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
 
     if iter_index % config['validation_frequency'] == 0:
-        dev_data_batch = generate_batch_data(dev_data, config, "dev", -1)  # -1 means random sampling
-
+        dev_data_batch = generate_batch_data(dev_data, config)
         dw, dc, qw, qc, cd, cd_m = extract_data(dev_data_batch)
         cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m)
 
@@ -386,28 +367,6 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
                 with open(dev_10_p, 'a') as of3:
                     of3.writelines(str(acc_dev) + ',' + str(aver_dev_acc) + '\n')
     
-    if iter_index % config['validation_frequency_whole_dev'] == 0:
-        n_batch_data = int(len(dev_data) / config['batch_size']) - 1
-        acc_dev_list = []
-        
-        for batch_i in range(n_batch_data):
-            dev_data_batch = generate_batch_data(dev_data, config, "dev", batch_i)
-
-            dw, dc, qw, qc, cd, cd_m = extract_data(dev_data_batch)
-            cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m)
-
-            answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
-            acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
-            acc_dev_list.append(acc_dev)
-        
-        acc_dev_whole = sum(acc_dev_list) / n_batch_data
-        print("---- dev acc whole: " + str(round(acc_dev_whole, 4)))
-
-        if len(sys.argv) > 3:
-            if str(sys.argv[3]) == 'log':
-                with open(dev_whole_p, 'a') as of4:
-                    of4.writelines(str(acc_dev_whole) + '\n')
-
     return dev_acc_list
 
 
@@ -434,31 +393,25 @@ def main():
     hidden_size = config['nhidden']
     batch_size = config['batch_size']
 
+    # use to embed token embedding and char embedding
+    # input_embed_model = EmbeddingLayer.InputEmbeddingLayer(W_init, config)
+
     coref_model = model.CorefQA(hidden_size, batch_size, K, W_init, config).to(device)
-
-    if len(sys.argv) > 4 and str(sys.argv[4]) == "load":
-        try:
-            coref_model.load_state_dict(torch.load(torch_model_p))
-            print("saved model loaded")
-        except:
-            print("no saved model")
-
     criterion = nn.CrossEntropyLoss()
+    
     optimizer = torch.optim.Adam(coref_model.parameters(), lr=config['learning_rate']) # TODO: use hyper-params in paper
+    # optimizer = torch.optim.ASGD(coref_model.parameters(), lr=config['learning_rate'])
 
     iter_index = 0
     batch_acc_list = []
     batch_loss_list = []
     dev_acc_list = []
 
-    max_iter = int(config['num_epochs'] * len(train_data) / batch_size)
-    print("max iteration number: " + str(max_iter))
-
     while True:
         # building batch data
         # batch_xxx_data is a list of batch data (len 15)
         # [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
-        batch_train_data = generate_batch_data(train_data, config, "train", -1)  # -1 means random sampling
+        batch_train_data = generate_batch_data(train_data, config)
         # dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
 
         # zero the parameter gradients
@@ -477,18 +430,15 @@ def main():
         batch_loss_list.append(loss)
         dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model)
 
-        # save model
-        if iter_index % config['model_save_frequency'] == 0 and len(sys.argv) > 4:
-            torch.save(coref_model.state_dict(), torch_model_p)
-
         # back-prop
         loss.backward()
         optimizer.step()
 
         # check stopping criteria
         del batch_train_data
+
         iter_index += 1
-        if iter_index > max_iter: break
+        if iter_index > 100000: break
 
 
 if __name__ == "__main__":

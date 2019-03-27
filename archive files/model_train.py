@@ -1,13 +1,11 @@
 import sys
-import os
 import json
 import numpy as np
-import model as model
+import model2 as model
 import torch
 import torch.nn as nn
 
 
-# config path
 config_path = "config.json"
 
 # use GloVe pre-trained embedding
@@ -19,23 +17,8 @@ vocab_path = "data/wikihop/vocab.txt"
 # vocab file for chars in a specific dataset
 vocab_char_path = "data/wikihop/vocab.txt.chars"
 
-# train and dev set
 train_path = "data/wikihop/training.json"
 valid_path = "data/wikihop/validation.json"
-
-# model save path
-torch_model_p = "model/coref.pkl"
-
-# log files
-log_path = "logs/"
-iter_10_p = log_path + 'iter_10_acc.txt'
-iter_50_p = log_path + 'iter_50_acc.txt'
-dev_10_p = log_path + 'dev_10_acc.txt'
-dev_whole_p = log_path + 'dev_whole_acc.txt'
-
-# check CPU or GPU
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-print("using " + str(device))
 
 
 def load_config(config_p):
@@ -46,25 +29,6 @@ def load_config(config_p):
         config['stopping_criterion'] = True
     else:
         config['stopping_criterion'] = False
-    
-    if len(sys.argv) > 3:
-        if str(sys.argv[3]) == 'log':
-            try:
-                os.remove(iter_10_p)
-            except:
-                print('no log file')
-            try:
-                os.remove(iter_50_p)
-            except:
-                print('no log file')
-            try:
-                os.remove(dev_10_p)
-            except:
-                print('no log file')
-            try:
-                os.remove(dev_whole_p)
-            except:
-                print('no log file')
 
     return config
 
@@ -95,6 +59,13 @@ def build_dict(vocab_p, vocab_char_p):
     
     for index, one_tuple in enumerate(vocal_c_ordered_list):
         vocab_c_index_dict[one_tuple[0]] = index
+
+    # test_out1 = open("tmp_word_dict.txt", 'w')
+    # test_out2 = open("tmp_char_dict.txt", 'w')
+    # for ele in vocab_index_dict:
+    #     test_out1.writelines(str(ele) + '\t' + str(vocab_index_dict[ele]) + '\n')
+    # for ele in vocab_c_index_dict:
+    #     test_out2.writelines(str(ele) + '\t' + str(vocab_c_index_dict[ele]) + '\n')
 
     return vocab_index_dict, vocab_c_index_dict
 
@@ -230,28 +201,26 @@ def get_graph(edges):
     return dei, deo, dri, dro
 
 
-def generate_batch_data(data, config, data_type, batch_i):
+def generate_batch_data(data, config):
     max_word_len = config['max_word_len']
     max_chains = config['max_chains']
+
     batch_size = config['batch_size']
     
     n_data = len(data)
     max_doc_len, max_qry_len, max_cands = 0, 0, 0
-    
-    if batch_i == -1:
-        batch_index = np.random.choice(n_data, batch_size, replace=True)
-    else:
-        batch_index = []
-        start_i = batch_i * batch_size
-        end_i = (batch_i + 1) * batch_size
-        for tmp_i in range(start_i, end_i):
-            batch_index.append(tmp_i)
+
+    batch_index = np.random.choice(n_data, batch_size, replace=True)
 
     for index in batch_index:
         doc_w, qry_w, ans, cand, doc_c, qry_c, corefs, mentions, annotations, fname = data[index]
         max_doc_len = max(max_doc_len, len(doc_w))
         max_qry_len = max(max_qry_len, len(qry_w))
         max_cands = max(max_cands, len(cand))
+    
+    # print(max_doc_len)
+    # print(max_qry_len)
+    # print(max_cands)
 
     #------------------------------------------------------------------------
     dw = np.zeros((batch_size, max_doc_len), dtype='int32') # document words
@@ -324,91 +293,25 @@ def cal_acc(cand_probs, answer, batch_size):
     acc_cnt = 0
     for acc_i in range(batch_size):
         if cand_a[acc_i] == answer[acc_i]: acc_cnt += 1
-    return acc_cnt / batch_size
+    return acc_cnt/batch_size
 
 
-def extract_data(batch_data):
-    context = torch.from_numpy(batch_data[0]).type(torch.LongTensor).to(device)
-    context_char = torch.from_numpy(batch_data[4]).type(torch.LongTensor).to(device)
-    query = torch.from_numpy(batch_data[2]).type(torch.LongTensor).to(device)
-    query_char = torch.from_numpy(batch_data[6]).type(torch.LongTensor).to(device)
-    candidate = torch.from_numpy(batch_data[8]).type(torch.DoubleTensor)
-    candidate_mask = torch.from_numpy(batch_data[9]).type(torch.DoubleTensor)
-    return context, context_char, query, query_char, candidate, candidate_mask
-
-
-def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model):
-    if iter_index % config['logging_frequency'] == 0:
-        n = len(batch_acc_list)
-        if n > 15:
-            acc_aver = 0
-            loss_aver = 0
-            for i in range(n-10, n):
-                acc_aver += batch_acc_list[i] / 10
-                loss_aver += batch_loss_list[i] / 10
-
-            print("iter (10) -- acc: " + str(round(acc_aver, 4)) + ", loss: " + str(round(loss_aver.data.item(), 4)))
-            if len(sys.argv) > 3:
-                if str(sys.argv[3]) == 'log':
-                    with open(iter_10_p, 'a') as of1:
-                        of1.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
-
-        if n > 55:
-            acc_aver = 0
-            loss_aver = 0
-            for i in range(n-50, n):
-                acc_aver += batch_acc_list[i] / 50
-                loss_aver += batch_loss_list[i] / 50
-            print("iter (50) -- acc: " + str(round(acc_aver, 4)) + ", loss: " + str(round(loss_aver.data.item(), 4)))
-            if len(sys.argv) > 3:
-                if str(sys.argv[3]) == 'log':
-                    with open(iter_50_p, 'a') as of2:
-                        of2.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
-
-    if iter_index % config['validation_frequency'] == 0:
-        dev_data_batch = generate_batch_data(dev_data, config, "dev", -1)  # -1 means random sampling
-
-        dw, dc, qw, qc, cd, cd_m = extract_data(dev_data_batch)
-        cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m)
-
-        answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
-        acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
-        dev_acc_list.append(acc_dev)
-
-        aver_dev_acc = 0
-        if len(dev_acc_list) > 15:
-            tmp_list = dev_acc_list[len(dev_acc_list)-10: len(dev_acc_list)]
-            aver_dev_acc = sum(tmp_list) / 10
-
-        print("-- dev acc: " + str(round(acc_dev, 4)) + ', aver dev acc: ' + str(round(aver_dev_acc, 4)))
-        if len(sys.argv) > 3:
-            if str(sys.argv[3]) == 'log':
-                with open(dev_10_p, 'a') as of3:
-                    of3.writelines(str(acc_dev) + ',' + str(aver_dev_acc) + '\n')
-    
-    if iter_index % config['validation_frequency_whole_dev'] == 0:
-        n_batch_data = int(len(dev_data) / config['batch_size']) - 1
-        acc_dev_list = []
-        
-        for batch_i in range(n_batch_data):
-            dev_data_batch = generate_batch_data(dev_data, config, "dev", batch_i)
-
-            dw, dc, qw, qc, cd, cd_m = extract_data(dev_data_batch)
-            cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m)
-
-            answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
-            acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
-            acc_dev_list.append(acc_dev)
-        
-        acc_dev_whole = sum(acc_dev_list) / n_batch_data
-        print("---- dev acc whole: " + str(round(acc_dev_whole, 4)))
-
-        if len(sys.argv) > 3:
-            if str(sys.argv[3]) == 'log':
-                with open(dev_whole_p, 'a') as of4:
-                    of4.writelines(str(acc_dev_whole) + '\n')
-
-    return dev_acc_list
+def cal_aver_stat(batch_acc_list, batch_loss_list):
+    n = len(batch_acc_list)
+    if n > 15:
+        acc_aver = 0
+        loss_aver = 0
+        for i in range(n-10, n):
+            acc_aver += batch_acc_list[i] / 10
+            loss_aver += batch_loss_list[i] / 10
+        print("last 10 iter -- acc: " + str(acc_aver) + ", loss: " + str(loss_aver))
+    if n > 55:
+        acc_aver = 0
+        loss_aver = 0
+        for i in range(n-50, n):
+            acc_aver += batch_acc_list[i] / 50
+            loss_aver += batch_loss_list[i] / 50
+        print("last 50 iter -- acc: " + str(acc_aver) + ", loss: " + str(loss_aver))
 
 
 def main():
@@ -422,8 +325,6 @@ def main():
     # W_init: token index * token embeding
     # embed_dim: embedding dimension
     W_init, embed_dim = load_word2vec_embedding(word_embedding_path, vocab_dict)
-    
-    K = 3
 
     # generate train/valid examples
     train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config, "train")
@@ -433,53 +334,55 @@ def main():
     # training process begins
     hidden_size = config['nhidden']
     batch_size = config['batch_size']
+    K = 3
 
-    coref_model = model.CorefQA(hidden_size, batch_size, K, W_init, config).to(device)
+    # use to embed token embedding and char embedding
+    # input_embed_model = EmbeddingLayer.InputEmbeddingLayer(W_init, config)
 
-    if len(sys.argv) > 4 and str(sys.argv[4]) == "load":
-        try:
-            coref_model.load_state_dict(torch.load(torch_model_p))
-            print("saved model loaded")
-        except:
-            print("no saved model")
-
+    coref_model = model.CorefQA(hidden_size, batch_size, K, W_init, config)
     criterion = nn.CrossEntropyLoss()
+    
     optimizer = torch.optim.Adam(coref_model.parameters(), lr=config['learning_rate']) # TODO: use hyper-params in paper
+    # optimizer = torch.optim.ASGD(coref_model.parameters(), lr=config['learning_rate'])
 
     iter_index = 0
     batch_acc_list = []
     batch_loss_list = []
-    dev_acc_list = []
-
-    max_iter = int(config['num_epochs'] * len(train_data) / batch_size)
-    print("max iteration number: " + str(max_iter))
 
     while True:
         # building batch data
         # batch_xxx_data is a list of batch data (len 15)
         # [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
-        batch_train_data = generate_batch_data(train_data, config, "train", -1)  # -1 means random sampling
+        batch_train_data = generate_batch_data(train_data, config)
         # dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
 
         # zero the parameter gradients
         optimizer.zero_grad()
 
         # forward pass
-        dw, dc, qw, qc, cd, cd_m = extract_data(batch_train_data)
-        cand_probs = coref_model(dw, dc, qw, qc, cd, cd_m) # B x Cmax
-
+        cand_probs = coref_model(batch_train_data) # B x Cmax
         answer = torch.tensor(batch_train_data[10]).type(torch.LongTensor) # B x 1
         loss = criterion(cand_probs, answer)
 
         # evaluation process
         acc_batch = cal_acc(cand_probs, answer, batch_size)
+        print("batch acc: " + str(acc_batch) + ', batch loss: ' + str(loss))
+
         batch_acc_list.append(acc_batch)
         batch_loss_list.append(loss)
-        dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model)
 
-        # save model
-        if iter_index % config['model_save_frequency'] == 0 and len(sys.argv) > 4:
-            torch.save(coref_model.state_dict(), torch_model_p)
+        if iter_index % config['logging_frequency'] == 0:
+            cal_aver_stat(batch_acc_list, batch_loss_list)
+
+        if iter_index % config['validation_frequency'] == 0:
+            n_dev = len(dev_data)
+            dev_data_batch = generate_batch_data(dev_data, config)
+            ans_dev= dev_data_batch[10]
+            cand_probs_dev = coref_model(dev_data_batch)
+            answer_dev = torch.tensor(ans_dev).type(torch.LongTensor)
+            loss_dev = criterion(cand_probs_dev, answer_dev)
+            acc_dev = cal_acc(cand_probs_dev, answer_dev, n_dev)
+            print("-- dev acc: " + str(acc_dev) + ', dev loss: ' + str(loss_dev))
 
         # back-prop
         loss.backward()
@@ -487,8 +390,9 @@ def main():
 
         # check stopping criteria
         del batch_train_data
+
         iter_index += 1
-        if iter_index > max_iter: break
+        if iter_index > 100000: break
 
 
 if __name__ == "__main__":
