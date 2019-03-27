@@ -208,7 +208,16 @@ class CorefGRU(nn.Module):
     def _attention(self, x, c_r, e, r):
         EPS = 1e-100
         v = torch.tensordot(r, self.Watt, [[2],[0]]) # B x C x Din
-        actvs = torch.squeeze(torch.mm(v,x.unsqueeze(2)),axis=2) # B x C
+        # print("#########")
+        # print(v.shape, x.unsqueeze(2).shape)
+        # print("#########")
+        actvs = torch.squeeze(torch.matmul(v,x.unsqueeze(2)),2) # B x C
+        # print("#########")
+        # print(actvs.shape)
+        # print("#########")
+
+        e = e.type(torch.FloatTensor)
+        
         alphas_m = torch.exp(actvs)*e + EPS # B x C
         return alphas_m/torch.sum(alphas_m, 1, keepdim=True) # B x C
 
@@ -220,7 +229,7 @@ class CorefGRU(nn.Module):
         else:
             agg = torch.unsqueeze(alphas, 2)*r
             agg = agg.permute(0, 2, 1)/torch.unsqueeze(torch.sum(e, 1, keepdim=True), 1) # B x R x C
-        mem = torch.mm(agg, c_r) # B x R x Dr
+        mem = torch.matmul(agg, c_r) # B x R x Dr
         return torch.reshape(mem, [-1, self.num_relations*self.rdims]), \
                 torch.sum(agg, 2) # B x RDr
 
@@ -237,7 +246,7 @@ class CorefGRU(nn.Module):
         B, N = ro.shape[0], ro.shape[1]
         ro1hot = torch.zeros(B, N, self.num_relations).scatter_(2, ro_re.data, 1)  # B x C x R
         # ro1hot = tf.one_hot(ro, self.num_relations, axis=2) # B x C x R
-        mnew = torch.mm(ro1hot, hnew_r) # B x C x Dr
+        mnew = torch.matmul(ro1hot, hnew_r) # B x C x Dr
         hnew.set_shape([None,self.output_dim])
 
         m_r = torch.unsqueeze(m, 1) # B x 1
@@ -254,12 +263,12 @@ class CorefGRU(nn.Module):
             return s
         ri_re = ri.unsqueeze(2)
         B, N = ri.shape[0], ri.shape[1]
-        print(ri.shape)
+        # print(ri.shape)
 
         r1hot = torch.zeros(B, N, self.num_relations).scatter_(2, ri_re.data, 1)  # B x C x R
         # r1hot = tf.one_hot(ri, self.num_relations) # B x C x R
         prev, agg = self._hid_prev(x, c, e, r1hot) # B x RDr
-        hid_to_hid = torch.mm(prev, self.Ustacked) # B x 3Dout
+        hid_to_hid = torch.matmul(prev, self.Ustacked) # B x 3Dout
         r = torch.sigmoid(_slice(xp,0) + _slice(hid_to_hid,0) + rgate["b"])
         z = torch.sigmoid(_slice(xp,1) + _slice(hid_to_hid,1) + ugate["b"])
         ht = torch.tanh(_slice(xp,2) + r*_slice(hid_to_hid,2) + hgate["b"])
