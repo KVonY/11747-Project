@@ -344,7 +344,7 @@ def extract_data(batch_data):
     return dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro
 
 
-def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model):
+def evaluate_result(iter_index, max_iter, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model):
     if iter_index % config['logging_frequency'] == 0:
         n = len(batch_acc_list)
         if n > 15:
@@ -393,7 +393,7 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
                 with open(dev_10_p, 'a') as of3:
                     of3.writelines(str(acc_dev) + ',' + str(aver_dev_acc) + '\n')
     
-    if iter_index % config['validation_frequency_whole_dev'] == 0 and iter_index > 0:
+    if (iter_index % config['validation_frequency_whole_dev'] == 0 and iter_index > 0) or (iter_index == max_iter):
         n_batch_data = int(len(dev_data) / config['batch_size']) - 1
         acc_dev_list = []
         
@@ -483,7 +483,7 @@ def main():
         batch_acc_list.append(acc_batch)
         batch_loss_list.append(loss)
         print("batch acc: " + str(round(acc_batch, 4)))
-        dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model)
+        dev_acc_list = evaluate_result(iter_index, max_iter, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model)
 
         # save model
         if iter_index % config['model_save_frequency'] == 0 and len(sys.argv) > 4:
