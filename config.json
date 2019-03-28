@@ -25,5 +25,5 @@
     "max_word_len": 15,
     "vocab_size": 100000,
     "num_characters": 500,
-    "max_doc_len": 1000
+    "max_doc_len": 20
 }

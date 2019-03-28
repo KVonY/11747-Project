@@ -166,16 +166,16 @@ class CorefQA(torch.nn.Module):
         self.max_chains = config['max_chains']
 
         self.context_crf_1_f = tf_layer.CorefGRU(self.num_relations, embedding_size, self.relation_dims, self.max_chains)
-        self.context_crf_2_f = tf_layer.CorefGRU(self.num_relations, 196, self.relation_dims, self.max_chains)
-        self.context_crf_3_f = tf_layer.CorefGRU(self.num_relations, 196, self.relation_dims, self.max_chains)
+        self.context_crf_2_f = tf_layer.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains)
+        self.context_crf_3_f = tf_layer.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains)
 
         self.context_crf_1_b = tf_layer.CorefGRU(self.num_relations, embedding_size, self.relation_dims, self.max_chains, reverse=True)
-        self.context_crf_2_b = tf_layer.CorefGRU(self.num_relations, 196, self.relation_dims, self.max_chains, reverse=True)
-        self.context_crf_3_b = tf_layer.CorefGRU(self.num_relations, 196, self.relation_dims, self.max_chains, reverse=True)
+        self.context_crf_2_b = tf_layer.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains, reverse=True)
+        self.context_crf_3_b = tf_layer.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains, reverse=True)
 
-        self.query_gru_1 = BiGRU(embedding_size, 98, batch_size)
-        self.query_gru_2 = BiGRU(embedding_size, 98, batch_size)
-        self.query_gru_3 = BiGRU(embedding_size, 98, batch_size)
+        self.query_gru_1 = BiGRU(embedding_size, 64, batch_size)
+        self.query_gru_2 = BiGRU(embedding_size, 64, batch_size)
+        self.query_gru_3 = BiGRU(embedding_size, 64, batch_size)
 
         self.ga = GatedAttentionLayer() # non-parametrized
         self.pred = AnswerPredictionLayer() # non-parametrized

@@ -375,8 +375,8 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
     if iter_index % config['validation_frequency'] == 0:
         dev_data_batch = generate_batch_data(dev_data, config, "dev", -1)  # -1 means random sampling
 
-        dw, dc, qw, qc, cd, cd_m = extract_data(dev_data_batch)
-        cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m)
+        dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro = extract_data(dev_data_batch)
+        cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro)
 
         answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
         acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
@@ -400,8 +400,8 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
         for batch_i in range(n_batch_data):
             dev_data_batch = generate_batch_data(dev_data, config, "dev", batch_i)
 
-            dw, dc, qw, qc, cd, cd_m = extract_data(dev_data_batch)
-            cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m)
+            dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro = extract_data(dev_data_batch)
+            cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro)
 
             answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
             acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
@@ -482,7 +482,7 @@ def main():
         acc_batch = cal_acc(cand_probs, answer, batch_size)
         batch_acc_list.append(acc_batch)
         batch_loss_list.append(loss)
-        print("batch acc: " + str(acc_batch))
+        print("batch acc: " + str(round(acc_batch, 4)))
         dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model)
 
         # save model
