@@ -195,7 +195,7 @@ class CorefGRU(nn.Module):
             aggs = torch.cat((aggs, anow.unsqueeze(0)), 0)
             mnew = mnow
             agg = anow
-
+            hnew = hnow
         # outs, mems, aggs = tf.scan(self._step, (Xre, Xpre, Mre, Eire, Eore, Rire, Rore), 
         #         initializer=(init,mem_init,agg_init)) # N x B x Dout
 
