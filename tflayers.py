@@ -1,7 +1,8 @@
-import tensorflow as tf
 import numpy as np
 import torch
 import torch.nn as nn
+
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 def glorot(d1,d2):
     return np.sqrt(6./(d1+d2))
@@ -68,9 +69,10 @@ class CorefGRU(nn.Module):
         self.reverse = reverse
         self.concat = concat
         h_to_h = self.rdims*self.num_relations
-        self.W = torch.randn(self.input_dim, self.output_dim)*glorot(self.input_dim,self.output_dim)
-        self.U = torch.randn(h_to_h, self.output_dim)*glorot(h_to_h,self.output_dim)
-        self.b = torch.zeros(self.output_dim, dtype=torch.float32)
+
+        self.W = (torch.randn(self.input_dim, self.output_dim)*glorot(self.input_dim,self.output_dim)).to(device)
+        self.U = (torch.randn(h_to_h, self.output_dim)*glorot(h_to_h,self.output_dim)).to(device)
+        self.b = (torch.zeros(self.output_dim, dtype=torch.float32)).to(device)
 
 
         # initialize gates
@@ -94,20 +96,20 @@ class CorefGRU(nn.Module):
         self.updategate = {"W": self.W, "U": self.U, "b": self.b}
         self.hiddengate = {"W": self.W, "U": self.U, "b": self.b}
         self.Wstacked = torch.cat([self.resetgate["W"], self.updategate["W"],
-                self.hiddengate["W"]], 1) # Din x 3Dout
+                self.hiddengate["W"]], 1).to(device) # Din x 3Dout
         self.Ustacked = torch.cat([self.resetgate["U"], self.updategate["U"],
-                self.hiddengate["U"]], 1) # Dr x 3Dout
+                self.hiddengate["U"]], 1).to(device) # Dr x 3Dout
 
         # initialize attention params
         if not self.concat:
             # self.Watt = tf.Variable(tf.random_normal((self.num_relations,self.input_dim),
             #     mean=0.0, stddev=0.1),
             #     name="Watt", dtype=tf.float32) # Dr x Din
-            self.Watt = torch.randn(self.num_relations, self.input_dim)*0.1
+            self.Watt = (torch.randn(self.num_relations, self.input_dim)*0.1).to(device)
 
         # initialize initial memory state
         self.mem_init = torch.zeros((self.max_chains, self.rdims),
-                                 dtype=torch.float32)
+                                 dtype=torch.float32).to(device)
 
     def forward(self, X, M, Ei, Eo, Ri, Ro, init=None, mem_init=None):
         """Apply Coref-GRU layer to the given tensors.
@@ -176,18 +178,12 @@ class CorefGRU(nn.Module):
         Xpre = torch.tensordot(Xre, self.Wstacked, [[2],[0]]) # N x B x 3Dout
 
         # update
-        if init is None: init = torch.zeros((X.shape[0], self.output_dim), 
-                dtype=torch.float32)
+        if init is None: 
+            init = torch.zeros((X.shape[0], self.output_dim), dtype=torch.float32).to(device)
         if mem_init is None:
-            mem_init = self.mem_init.unsqueeze(0).repeat(X.shape[0], 1, 1)
-        agg_init = torch.zeros((X.shape[0], self.num_relations),
-                dtype = torch.float32)
+            mem_init = self.mem_init.unsqueeze(0).repeat(X.shape[0], 1, 1).to(device)
+        agg_init = torch.zeros((X.shape[0], self.num_relations), dtype = torch.float32).to(device)
         
-        # print("_____________")
-        # print(mem_init.shape)
-        # print(agg_init.shape)
-        # print("_____________")
-
         hnew, mnew, agg = self._step((init, mem_init), (Xre[0], Xpre[0], Mre[0], Eire[0], Eore[0], Rire[0], Rore[0]))
         outs = hnew.unsqueeze(0)
         mems = mnew.unsqueeze(0)
@@ -214,15 +210,8 @@ class CorefGRU(nn.Module):
     def _attention(self, x, c_r, e, r):
         EPS = 1e-100
         v = torch.tensordot(r, self.Watt, [[2],[0]]) # B x C x Din
-        # print("#########")
-        # print(v.shape, x.unsqueeze(2).shape)
-        # print("#########")
         actvs = torch.squeeze(torch.matmul(v,x.unsqueeze(2)),2) # B x C
-        # print("#########")
-        # print(actvs.shape)
-        # print("#########")
-
-        e = e.type(torch.FloatTensor)
+        e = e.type(torch.FloatTensor).to(device)
         
         alphas_m = torch.exp(actvs)*e + EPS # B x C
         return alphas_m/torch.sum(alphas_m, 1, keepdim=True) # B x C
@@ -254,19 +243,18 @@ class CorefGRU(nn.Module):
                 [x.shape[0], self.num_relations, self.rdims]) # B x R x Dr
         ro_re = ro.unsqueeze(2)
         B, N = ro.shape[0], ro.shape[1]
-        ro1hot = torch.zeros(B, N, self.num_relations).scatter_(2, ro_re.data, 1)  # B x C x R
+        ro1hot_tmp = torch.zeros(B, N, self.num_relations).to(device)
+        ro1hot = ro1hot_tmp.scatter_(2, ro_re.data, 1)  # B x C x R
         # ro1hot = tf.one_hot(ro, self.num_relations, axis=2) # B x C x R
         mnew = torch.matmul(ro1hot, hnew_r) # B x C x Dr
         # hnew.set_shape([None,self.output_dim])
         hnew = torch.reshape(hnew, [-1, self.output_dim])
 
         m_r = torch.unsqueeze(m, 1) # B x 1
-        # print("###############")
-        # print(type(m_r))
-        # print("###############")
-        m_r = m_r.type(torch.FloatTensor)
+        m_r = m_r.type(torch.FloatTensor).to(device)
         hnew = (1.-m_r)*hprev + m_r*hnew
-        eo = eo.type(torch.FloatTensor)
+        
+        eo = eo.type(torch.FloatTensor).to(device)
         eo_r = torch.unsqueeze(m_r*eo, 2) # B x C x 1
         mnew = (1.-eo_r)*mprev + eo_r*mnew
 
@@ -278,9 +266,10 @@ class CorefGRU(nn.Module):
             return s
         ri_re = ri.unsqueeze(2)
         B, N = ri.shape[0], ri.shape[1]
-        # print(ri.shape)
 
-        r1hot = torch.zeros(B, N, self.num_relations).scatter_(2, ri_re.data, 1)  # B x C x R
+        r1hot_tmp = torch.zeros(B, N, self.num_relations).to(device)
+        r1hot = r1hot_tmp.scatter_(2, ri_re.data, 1) # B x C x R
+        
         # r1hot = tf.one_hot(ri, self.num_relations) # B x C x R
         prev, agg = self._hid_prev(x, c, e, r1hot) # B x RDr
         hid_to_hid = torch.matmul(prev, self.Ustacked) # B x 3Dout
