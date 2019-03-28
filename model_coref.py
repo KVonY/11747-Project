@@ -166,16 +166,16 @@ class CorefQA(torch.nn.Module):
         self.max_chains = config['max_chains']
 
         self.context_crf_1_f = tf_layer.CorefGRU(self.num_relations, embedding_size, self.relation_dims, self.max_chains)
-        self.context_crf_2_f = tf_layer.CorefGRU(self.num_relations, 2*hidden_size, self.relation_dims, self.max_chains)
-        self.context_crf_3_f = tf_layer.CorefGRU(self.num_relations, 2*hidden_size, self.relation_dims, self.max_chains)
+        self.context_crf_2_f = tf_layer.CorefGRU(self.num_relations, 196, self.relation_dims, self.max_chains)
+        self.context_crf_3_f = tf_layer.CorefGRU(self.num_relations, 196, self.relation_dims, self.max_chains)
 
         self.context_crf_1_b = tf_layer.CorefGRU(self.num_relations, embedding_size, self.relation_dims, self.max_chains, reverse=True)
-        self.context_crf_2_b = tf_layer.CorefGRU(self.num_relations, 2*hidden_size, self.relation_dims, self.max_chains, reverse=True)
-        self.context_crf_3_b = tf_layer.CorefGRU(self.num_relations, 2*hidden_size, self.relation_dims, self.max_chains, reverse=True)
+        self.context_crf_2_b = tf_layer.CorefGRU(self.num_relations, 196, self.relation_dims, self.max_chains, reverse=True)
+        self.context_crf_3_b = tf_layer.CorefGRU(self.num_relations, 196, self.relation_dims, self.max_chains, reverse=True)
 
-        self.query_gru_1 = BiGRU(embedding_size, hidden_size, batch_size)
-        self.query_gru_2 = BiGRU(embedding_size, hidden_size, batch_size)
-        self.query_gru_3 = BiGRU(embedding_size, hidden_size, batch_size)
+        self.query_gru_1 = BiGRU(embedding_size, 98, batch_size)
+        self.query_gru_2 = BiGRU(embedding_size, 98, batch_size)
+        self.query_gru_3 = BiGRU(embedding_size, 98, batch_size)
 
         self.ga = GatedAttentionLayer() # non-parametrized
         self.pred = AnswerPredictionLayer() # non-parametrized
@@ -205,7 +205,17 @@ class CorefQA(torch.nn.Module):
         context_out_1_b, _, _ = self.context_crf_1_b(context_emb, m_dw, dei, deo, dri, dro)
         context_out_1 = torch.cat((context_out_1_f, context_out_1_b), dim=2)
         query_out_1 = self.query_gru_1(query_emb)
+
+        # print("------")
+        # print(context_out_1_f.shape)
+        # print(context_out_1_b.shape)
+        # print(context_out_1.shape)
+        # print(query_out_1.shape)
+        # print("------")
+
         layer_out_1 = self.ga(context_out_1, query_out_1)
+
+        # print(layer_out_1.shape)
 
 
         context_out_2_f, _, _ = self.context_crf_2_f(layer_out_1, m_dw, dei, deo, dri, dro)

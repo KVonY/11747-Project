@@ -183,10 +183,10 @@ class CorefGRU(nn.Module):
         agg_init = torch.zeros((X.shape[0], self.num_relations),
                 dtype = torch.float32)
         
-        print("_____________")
-        print(mem_init.shape)
-        print(agg_init.shape)
-        print("_____________")
+        # print("_____________")
+        # print(mem_init.shape)
+        # print(agg_init.shape)
+        # print("_____________")
 
         hnew, mnew, agg = self._step((init, mem_init), (Xre[0], Xpre[0], Mre[0], Eire[0], Eore[0], Rire[0], Rore[0]))
         outs = hnew.unsqueeze(0)
@@ -261,9 +261,9 @@ class CorefGRU(nn.Module):
         hnew = torch.reshape(hnew, [-1, self.output_dim])
 
         m_r = torch.unsqueeze(m, 1) # B x 1
-        print("###############")
-        print(type(m_r))
-        print("###############")
+        # print("###############")
+        # print(type(m_r))
+        # print("###############")
         m_r = m_r.type(torch.FloatTensor)
         hnew = (1.-m_r)*hprev + m_r*hnew
         eo = eo.type(torch.FloatTensor)
