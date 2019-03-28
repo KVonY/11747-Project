@@ -182,15 +182,21 @@ class CorefGRU(nn.Module):
             mem_init = self.mem_init.unsqueeze(0).repeat(X.shape[0], 1, 1)
         agg_init = torch.zeros((X.shape[0], self.num_relations),
                 dtype = torch.float32)
-        hnew, mnew, agg = self._step((mem_init, agg_init), (Xre[0], Xpre[0], Mre[0], Eire[0], Eore[0], Rire[0], Rore[0]))
+        
+        print("_____________")
+        print(mem_init.shape)
+        print(agg_init.shape)
+        print("_____________")
+
+        hnew, mnew, agg = self._step((init, mem_init), (Xre[0], Xpre[0], Mre[0], Eire[0], Eore[0], Rire[0], Rore[0]))
         outs = hnew.unsqueeze(0)
         mems = mnew.unsqueeze(0)
         aggs = agg.unsqueeze(0)
         for i in range(1, Xre.shape[0]):
-            hnow, mnow, anow = self._step((mnew, agg), (Xre[i], Xpre[i], Mre[i], Eire[i], Eore[i], Rire[i], Rore[i]))
+            hnow, mnow, anow = self._step((hnew, mnew), (Xre[i], Xpre[i], Mre[i], Eire[i], Eore[i], Rire[i], Rore[i]))
             outs = torch.cat((outs, hnow.unsqueeze(0)), 0)
-            mems = torch.cat((mems, hnow.unsqueeze(0)), 0)
-            aggs = torch.cat((aggs, hnow.unsqueeze(0)), 0)
+            mems = torch.cat((mems, mnow.unsqueeze(0)), 0)
+            aggs = torch.cat((aggs, anow.unsqueeze(0)), 0)
             mnew = mnow
             agg = anow
 
@@ -229,6 +235,10 @@ class CorefGRU(nn.Module):
         else:
             agg = torch.unsqueeze(alphas, 2)*r
             agg = agg.permute(0, 2, 1)/torch.unsqueeze(torch.sum(e, 1, keepdim=True), 1) # B x R x C
+        # print("###############")
+        # print(agg.shape)
+        # print(c_r.shape)
+        # print("###############")
         mem = torch.matmul(agg, c_r) # B x R x Dr
         return torch.reshape(mem, [-1, self.num_relations*self.rdims]), \
                 torch.sum(agg, 2) # B x RDr
@@ -247,11 +257,16 @@ class CorefGRU(nn.Module):
         ro1hot = torch.zeros(B, N, self.num_relations).scatter_(2, ro_re.data, 1)  # B x C x R
         # ro1hot = tf.one_hot(ro, self.num_relations, axis=2) # B x C x R
         mnew = torch.matmul(ro1hot, hnew_r) # B x C x Dr
-        hnew.set_shape([None,self.output_dim])
+        # hnew.set_shape([None,self.output_dim])
+        hnew = torch.reshape(hnew, [-1, self.output_dim])
 
         m_r = torch.unsqueeze(m, 1) # B x 1
+        print("###############")
+        print(type(m_r))
+        print("###############")
+        m_r = m_r.type(torch.FloatTensor)
         hnew = (1.-m_r)*hprev + m_r*hnew
-
+        eo = eo.type(torch.FloatTensor)
         eo_r = torch.unsqueeze(m_r*eo, 2) # B x C x 1
         mnew = (1.-eo_r)*mprev + eo_r*mnew
 
