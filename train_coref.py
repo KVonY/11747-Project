@@ -372,7 +372,7 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
                     with open(iter_50_p, 'a') as of2:
                         of2.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
 
-    if iter_index % config['validation_frequency'] == 0:
+    if iter_index % config['validation_frequency'] == 0 and iter_index > 0:
         dev_data_batch = generate_batch_data(dev_data, config, "dev", -1)  # -1 means random sampling
 
         dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro = extract_data(dev_data_batch)
@@ -393,7 +393,7 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
                 with open(dev_10_p, 'a') as of3:
                     of3.writelines(str(acc_dev) + ',' + str(aver_dev_acc) + '\n')
     
-    if iter_index % config['validation_frequency_whole_dev'] == 0:
+    if iter_index % config['validation_frequency_whole_dev'] == 0 and iter_index > 0:
         n_batch_data = int(len(dev_data) / config['batch_size']) - 1
         acc_dev_list = []
         

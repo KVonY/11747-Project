@@ -1,11 +1,11 @@
 {
-    "batch_size": 16,
+    "batch_size": 10,
     "grad_clip": 30,
     "nlayers": 3,
     "learning_rate": 0.0005,
     "num_epochs": 5,
     "validation_frequency": 10,
-    "validation_frequency_whole_dev": 100,
+    "validation_frequency_whole_dev": 10000,
     "model_save_frequency": 2,
     "anneal_frequency": 2500,
     "stopping_criterion": "True",
@@ -25,5 +25,5 @@
     "max_word_len": 15,
     "vocab_size": 100000,
     "num_characters": 500,
-    "max_doc_len": 20
+    "max_doc_len": 1000
 }
