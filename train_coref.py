@@ -409,12 +409,13 @@ def evaluate_result(iter_index, max_iter, config, dev_data, batch_acc_list, batc
         
         acc_dev_whole = sum(acc_dev_list) / n_batch_data
         print("---- dev acc whole: " + str(round(acc_dev_whole, 4)))
+        print("dev acc whole: " + str(acc_dev_whole))
 
         if len(sys.argv) > 3:
             if str(sys.argv[3]) == 'log':
                 with open(dev_whole_p, 'a') as of4:
                     of4.writelines(str(acc_dev_whole) + '\n')
-
+        
     return dev_acc_list
 
 
