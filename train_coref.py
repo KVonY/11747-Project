@@ -482,8 +482,8 @@ def main():
         acc_batch = cal_acc(cand_probs, answer, batch_size)
         batch_acc_list.append(acc_batch)
         batch_loss_list.append(loss)
-        print(acc_batch)
-        # dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model)
+        print("batch acc: " + str(acc_batch))
+        dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model)
 
         # save model
         if iter_index % config['model_save_frequency'] == 0 and len(sys.argv) > 4:
