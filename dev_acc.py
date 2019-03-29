@@ -5,6 +5,7 @@ import numpy as np
 import model_coref as model
 import torch
 import torch.nn as nn
+import time
 
 
 # config path
@@ -331,16 +332,21 @@ def main():
 
     n_batch_data = int(len(dev_data) / config['batch_size']) - 1
     acc_dev_list = []
-    
+    print(str(n_batch_data) + " batches needed")
+
     for batch_i in range(n_batch_data):
+        prev_time = time.time()
+
         dev_data_batch = generate_batch_data(dev_data, config, "dev", batch_i)
-        print("predicting dev batch: " + str(batch_i))
 
-        cand_probs_dev = coref_model(dev_data_batch)
-
-        answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
+        cand_probs_dev = coref_model(dev_data_batch).to(device)
+        answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor).to(device)
+        
         acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
         acc_dev_list.append(acc_dev)
+
+        print("predicting dev batch: " + str(batch_i) + ", acc: " + str(round(acc_dev, 4)) 
+            + ", in " + str(round(time.time()-prev_time, 2)) + " seconds")
     
     acc_dev_whole = sum(acc_dev_list) / n_batch_data
     print("---- dev acc whole: " + str(round(acc_dev_whole, 4)))
