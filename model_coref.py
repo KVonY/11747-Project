@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import tflayers as tf_layer
+import coref_gru as coref_gru
 from torch.utils.data import Dataset, DataLoader
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -28,12 +28,6 @@ class EmbeddingLayer(torch.nn.Module):
             out_channels=self.filter_size, 
             kernel_size=(1, self.filter_width), 
             stride=1)
-
-    # def prepare_input(self, d, q):
-    #     f = np.zeros(d.shape).astype('int32')
-    #     for i in range(d.shape[0]):
-    #         f[i,:] = np.in1d(d[i,:],q[i,:])
-    #     return f
 
     def get_feat_embedding(self):
         feat_embed_init = np.random.normal(0.0, 1.0, (2, 2))
@@ -142,7 +136,7 @@ class AnswerPredictionLayer(torch.nn.Module):
         q = q.unsqueeze(2) # B * 2Dh * 1
         p = torch.matmul(doc_emb, q).squeeze() # final query-aware document embedding: B x N
             
-        prob = self.softmax1(p).type(torch.DoubleTensor) # prob dist over document words, relatedness between word to entire query: B x N
+        prob = self.softmax1(p).type(torch.DoubleTensor).to(device) # prob dist over document words, relatedness between word to entire query: B x N
         probmasked = prob * cmask + 1e-7  # B x N
         
         sum_probmasked = torch.sum(probmasked, 1).unsqueeze(1) # B x 1
@@ -165,17 +159,17 @@ class CorefQA(torch.nn.Module):
         self.relation_dims = config['relation_dims']
         self.max_chains = config['max_chains']
 
-        self.context_crf_1_f = tf_layer.CorefGRU(self.num_relations, embedding_size, self.relation_dims, self.max_chains)
-        self.context_crf_2_f = tf_layer.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains)
-        self.context_crf_3_f = tf_layer.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains)
+        self.context_crf_1_f = coref_gru.CorefGRU(self.num_relations, embedding_size, self.relation_dims, self.max_chains).to(device)
+        self.context_crf_2_f = coref_gru.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains).to(device)
+        self.context_crf_3_f = coref_gru.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains).to(device)
 
-        self.context_crf_1_b = tf_layer.CorefGRU(self.num_relations, embedding_size, self.relation_dims, self.max_chains, reverse=True)
-        self.context_crf_2_b = tf_layer.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains, reverse=True)
-        self.context_crf_3_b = tf_layer.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains, reverse=True)
+        self.context_crf_1_b = coref_gru.CorefGRU(self.num_relations, embedding_size, self.relation_dims, self.max_chains, reverse=True).to(device)
+        self.context_crf_2_b = coref_gru.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains, reverse=True).to(device)
+        self.context_crf_3_b = coref_gru.CorefGRU(self.num_relations, 128, self.relation_dims, self.max_chains, reverse=True).to(device)
 
-        self.query_gru_1 = BiGRU(embedding_size, 64, batch_size)
-        self.query_gru_2 = BiGRU(embedding_size, 64, batch_size)
-        self.query_gru_3 = BiGRU(embedding_size, 64, batch_size)
+        self.query_gru_1 = BiGRU(embedding_size, 64, batch_size).to(device)
+        self.query_gru_2 = BiGRU(embedding_size, 64, batch_size).to(device)
+        self.query_gru_3 = BiGRU(embedding_size, 64, batch_size).to(device)
 
         self.ga = GatedAttentionLayer() # non-parametrized
         self.pred = AnswerPredictionLayer() # non-parametrized
@@ -187,35 +181,33 @@ class CorefQA(torch.nn.Module):
         # self.context_gru_3 = BiGRU(2*hidden_size, hidden_size, batch_size)
 
     
-    def forward(self, dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro):
+    # def forward(self, dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro):
+    def forward(self, batch_data):
+        dw = torch.from_numpy(batch_data[0]).type(torch.LongTensor).to(device)
+        dc = torch.from_numpy(batch_data[4]).type(torch.LongTensor).to(device)
+        qw = torch.from_numpy(batch_data[2]).type(torch.LongTensor).to(device)
+        qc = torch.from_numpy(batch_data[6]).type(torch.LongTensor).to(device)
+        cd = torch.from_numpy(batch_data[8]).type(torch.DoubleTensor).to(device)
+        cd_m = torch.from_numpy(batch_data[9]).type(torch.DoubleTensor).to(device)
+        
+        m_dw = torch.from_numpy(batch_data[1]).type(torch.LongTensor).to(device)
+        dei = torch.from_numpy(batch_data[11]).type(torch.LongTensor).to(device)
+        deo = torch.from_numpy(batch_data[12]).type(torch.LongTensor).to(device)
+        dri = torch.from_numpy(batch_data[13]).type(torch.LongTensor).to(device)
+        dro = torch.from_numpy(batch_data[14]).type(torch.LongTensor).to(device)
+
+
         context_emb, query_emb = self.embedding(
             dw, dc, 
             qw, qc, 
             0, self.K)
 
-        # print(context_emb.shape)
-        # print(m_dw.shape)
-        # print(dei.shape)
-        # print(deo.shape)
-        # print(dri.shape)
-        # print(dro.shape)
-        # return
 
         context_out_1_f, _, _ = self.context_crf_1_f(context_emb, m_dw, dei, deo, dri, dro)
         context_out_1_b, _, _ = self.context_crf_1_b(context_emb, m_dw, dei, deo, dri, dro)
         context_out_1 = torch.cat((context_out_1_f, context_out_1_b), dim=2)
         query_out_1 = self.query_gru_1(query_emb)
-
-        # print("------")
-        # print(context_out_1_f.shape)
-        # print(context_out_1_b.shape)
-        # print(context_out_1.shape)
-        # print(query_out_1.shape)
-        # print("------")
-
         layer_out_1 = self.ga(context_out_1, query_out_1)
-
-        # print(layer_out_1.shape)
 
 
         context_out_2_f, _, _ = self.context_crf_2_f(layer_out_1, m_dw, dei, deo, dri, dro)
@@ -229,20 +221,7 @@ class CorefQA(torch.nn.Module):
         context_out_3_b, _, _ = self.context_crf_3_b(layer_out_2, m_dw, dei, deo, dri, dro)
         context_out_3 = torch.cat((context_out_3_f, context_out_3_b), dim=2)
         query_out_3 = self.query_gru_3(query_emb)
-        
-        # #-----------------------------------------------------
-        # context_out_1 = self.context_gru_1(context_embedding)
-        # query_out_1 = self.query_gru_1(query_embedding)
-        # layer_out_1 = self.ga(context_out_1, query_out_1)
 
-        # #-----------------------------------------------------
-        # context_out_2 = self.context_gru_2(layer_out_1)
-        # query_out_2 = self.query_gru_2(query_embedding)
-        # layer_out_2 = self.ga(context_out_2, query_out_2)
-
-        # #-----------------------------------------------------
-        # context_out_3 = self.context_gru_3(layer_out_2)
-        # query_out_3 = self.query_gru_3(query_embedding)
 
         candidate_probs = self.pred(
             context_out_3, 

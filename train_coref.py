@@ -327,21 +327,21 @@ def cal_acc(cand_probs, answer, batch_size):
     return acc_cnt / batch_size
 
 
-def extract_data(batch_data):
-    dw = torch.from_numpy(batch_data[0]).type(torch.LongTensor).to(device)
-    dc = torch.from_numpy(batch_data[4]).type(torch.LongTensor).to(device)
-    qw = torch.from_numpy(batch_data[2]).type(torch.LongTensor).to(device)
-    qc = torch.from_numpy(batch_data[6]).type(torch.LongTensor).to(device)
-    cd = torch.from_numpy(batch_data[8]).type(torch.DoubleTensor)
-    cd_m = torch.from_numpy(batch_data[9]).type(torch.DoubleTensor)
+# def extract_data(batch_data):
+#     dw = torch.from_numpy(batch_data[0]).type(torch.LongTensor).to(device)
+#     dc = torch.from_numpy(batch_data[4]).type(torch.LongTensor).to(device)
+#     qw = torch.from_numpy(batch_data[2]).type(torch.LongTensor).to(device)
+#     qc = torch.from_numpy(batch_data[6]).type(torch.LongTensor).to(device)
+#     cd = torch.from_numpy(batch_data[8]).type(torch.DoubleTensor)
+#     cd_m = torch.from_numpy(batch_data[9]).type(torch.DoubleTensor)
     
-    m_dw = torch.from_numpy(batch_data[1]).type(torch.LongTensor).to(device)
-    dei = torch.from_numpy(batch_data[11]).type(torch.LongTensor).to(device)
-    deo = torch.from_numpy(batch_data[12]).type(torch.LongTensor).to(device)
-    dri = torch.from_numpy(batch_data[13]).type(torch.LongTensor).to(device)
-    dro = torch.from_numpy(batch_data[14]).type(torch.LongTensor).to(device)
+#     m_dw = torch.from_numpy(batch_data[1]).type(torch.LongTensor).to(device)
+#     dei = torch.from_numpy(batch_data[11]).type(torch.LongTensor).to(device)
+#     deo = torch.from_numpy(batch_data[12]).type(torch.LongTensor).to(device)
+#     dri = torch.from_numpy(batch_data[13]).type(torch.LongTensor).to(device)
+#     dro = torch.from_numpy(batch_data[14]).type(torch.LongTensor).to(device)
     
-    return dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro
+#     return dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro
 
 
 def evaluate_result(iter_index, max_iter, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model):
@@ -375,8 +375,9 @@ def evaluate_result(iter_index, max_iter, config, dev_data, batch_acc_list, batc
     if iter_index % config['validation_frequency'] == 0 and iter_index > 0:
         dev_data_batch = generate_batch_data(dev_data, config, "dev", -1)  # -1 means random sampling
 
-        dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro = extract_data(dev_data_batch)
-        cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro)
+        # dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro = extract_data(dev_data_batch)
+        # cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro)
+        cand_probs_dev = coref_model(dev_data_batch)
 
         answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
         acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
@@ -400,8 +401,9 @@ def evaluate_result(iter_index, max_iter, config, dev_data, batch_acc_list, batc
         for batch_i in range(n_batch_data):
             dev_data_batch = generate_batch_data(dev_data, config, "dev", batch_i)
 
-            dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro = extract_data(dev_data_batch)
-            cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro)
+            # dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro = extract_data(dev_data_batch)
+            # cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro)
+            cand_probs_dev = coref_model(dev_data_batch)
 
             answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
             acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
@@ -473,10 +475,11 @@ def main():
         optimizer.zero_grad()
 
         # forward pass
-        dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro = extract_data(batch_train_data)
-        cand_probs = coref_model(dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro) # B x Cmax
+        # dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro = extract_data(batch_train_data)
+        # cand_probs = coref_model(dw, dc, qw, qc, cd, cd_m, m_dw, dei, deo, dri, dro) # B x Cmax
+        cand_probs = coref_model(batch_train_data)
 
-        answer = torch.tensor(batch_train_data[10]).type(torch.LongTensor) # B x 1
+        answer = torch.tensor(batch_train_data[10]).type(torch.LongTensor).to(device) # B x 1
         loss = criterion(cand_probs, answer)
 
         # evaluation process

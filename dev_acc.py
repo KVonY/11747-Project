@@ -29,10 +29,7 @@ torch_model_p = "model/coref.pkl"
 
 # log files
 log_path = "logs/"
-iter_10_p = log_path + 'iter_10_acc.txt'
-iter_50_p = log_path + 'iter_50_acc.txt'
-dev_10_p = log_path + 'dev_10_acc.txt'
-dev_whole_p = log_path + 'dev_whole_acc.txt'
+dev_out_p = "logs/dev_whole_acc.txt"
 
 # check CPU or GPU
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -347,6 +344,16 @@ def main():
 
         print("predicting dev batch: " + str(batch_i) + ", acc: " + str(round(acc_dev, 4)) 
             + ", in " + str(round(time.time()-prev_time, 2)) + " seconds")
+
+        start_i = batch_i * batch_size
+        end_i = (batch_i + 1) * batch_size - 1
+        label = str(start_i) + '-' + str(end_i)
+        out_str = str(label) + ',' + str(acc_dev)
+
+        with open(dev_out_p, 'a') as of:
+            of.writelines(str(out_str) + '\n')
+
+
     
     acc_dev_whole = sum(acc_dev_list) / n_batch_data
     print("---- dev acc whole: " + str(round(acc_dev_whole, 4)))
