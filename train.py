@@ -2,7 +2,7 @@ import sys
 import os
 import json
 import numpy as np
-import model as model
+import model_ha as model
 import torch
 import torch.nn as nn
 
@@ -136,6 +136,32 @@ def get_doc_index_list(doc, token_dict, unk_dict):
     return ret
 
 
+def get_doc_index_list_cut_sen(doc, token_dict, unk_dict, config):
+    ret = []
+
+    sen_start_end_list = []
+    cur_start = 0
+    max_sen_cut = config["max_sen_len"]
+
+    for index, token in enumerate(doc):
+        if token == '.':
+            if cur_start <= index - 1:
+                sen_start_end_list.append([cur_start, index])
+            cur_start = index + 1
+
+        if token in token_dict:
+            ret.append(token_dict[token])
+        else:
+            ret.append(unk_dict[token])
+
+    if cur_start <= len(doc)-1:
+        sen_start_end_list.append([cur_start, len(doc)])
+
+    sen_start_end_list = sen_start_end_list[0: min(max_sen_cut, len(sen_start_end_list))]
+
+    return ret, sen_start_end_list
+
+
 def get_char_index_list(doc, char_dict, max_word_len):
     ret = []
     for token in doc:
@@ -158,6 +184,9 @@ def generate_examples(input_p, vocab_dict, vocab_c_dict, config, data_type):
 
     ret = []
     print("begin loading " + data_type + " data")
+
+    sen_list = []
+    n_sen_list = []
 
     with open(input_p, 'r', encoding="utf-8") as infile:
         for index, one_line in enumerate(infile):
@@ -188,7 +217,11 @@ def generate_examples(input_p, vocab_dict, vocab_c_dict, config, data_type):
             
             #------------------------------------------------------------------------
             # tokenize
-            doc_words = get_doc_index_list(doc_lower, vocab_dict, unk_dict)
+            # doc_words = get_doc_index_list(doc_lower, vocab_dict, unk_dict)
+            doc_words, sen_cut = get_doc_index_list_cut_sen(doc_lower, vocab_dict, unk_dict, config)
+            sen_list.append(sen_cut)
+            n_sen_list.append(len(sen_cut))
+
             qry_words = get_doc_index_list(qry_lower, vocab_dict, unk_dict)
             ans_words = get_doc_index_list(ans_lower, vocab_dict, unk_dict)
             can_words = []
@@ -219,7 +252,9 @@ def generate_examples(input_p, vocab_dict, vocab_c_dict, config, data_type):
                 if index > n_dev: break  # for dev
             
             if index % 2000 == 0: print("loading progress: " + str(index))
-    return ret
+    
+    print("max number of sentences: " + str(max(n_sen_list)))
+    return ret, sen_list
 
 
 def get_graph(edges):
@@ -230,13 +265,15 @@ def get_graph(edges):
     return dei, deo, dri, dro
 
 
-def generate_batch_data(data, config, data_type, batch_i):
+def generate_batch_data(data, config, data_type, batch_i, sen_cut):
     max_word_len = config['max_word_len']
     max_chains = config['max_chains']
     batch_size = config['batch_size']
     
     n_data = len(data)
     max_doc_len, max_qry_len, max_cands = 0, 0, 0
+
+    sen_cut_batch = []
     
     if batch_i == -1:
         batch_index = np.random.choice(n_data, batch_size, replace=True)
@@ -252,6 +289,7 @@ def generate_batch_data(data, config, data_type, batch_i):
         max_doc_len = max(max_doc_len, len(doc_w))
         max_qry_len = max(max_qry_len, len(qry_w))
         max_cands = max(max_cands, len(cand))
+        sen_cut_batch.append(sen_cut[index])
 
     #------------------------------------------------------------------------
     dw = np.zeros((batch_size, max_doc_len), dtype='int32') # document words
@@ -316,7 +354,7 @@ def generate_batch_data(data, config, data_type, batch_i):
 
     dei, deo, dri, dro = get_graph((edges_in, edges_out))
     ret = [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
-    return ret
+    return ret, sen_cut_batch
 
 
 def cal_acc(cand_probs, answer, batch_size):
@@ -337,7 +375,7 @@ def extract_data(batch_data):
     return context, context_char, query, query_char, candidate, candidate_mask
 
 
-def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model):
+def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model, sen_cut_dev):
     if iter_index % config['logging_frequency'] == 0:
         n = len(batch_acc_list)
         if n > 15:
@@ -366,10 +404,10 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
                         of2.writelines(str(acc_aver) + ',' + str(loss_aver) + '\n')
 
     if iter_index % config['validation_frequency'] == 0:
-        dev_data_batch = generate_batch_data(dev_data, config, "dev", -1)  # -1 means random sampling
+        dev_data_batch, sen_cut_batch = generate_batch_data(dev_data, config, "dev", -1, sen_cut_dev)  # -1 means random sampling
 
         dw, dc, qw, qc, cd, cd_m = extract_data(dev_data_batch)
-        cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m)
+        cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m, sen_cut_batch)
 
         answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
         acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
@@ -391,10 +429,10 @@ def evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_lis
         acc_dev_list = []
         
         for batch_i in range(n_batch_data):
-            dev_data_batch = generate_batch_data(dev_data, config, "dev", batch_i)
+            dev_data_batch, sen_cut_batch = generate_batch_data(dev_data, config, "dev", batch_i, sen_cut_dev)
 
             dw, dc, qw, qc, cd, cd_m = extract_data(dev_data_batch)
-            cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m)
+            cand_probs_dev = coref_model(dw, dc, qw, qc, cd, cd_m, sen_cut_batch)
 
             answer_dev = torch.tensor(dev_data_batch[10]).type(torch.LongTensor)
             acc_dev = cal_acc(cand_probs_dev, answer_dev, config['batch_size'])
@@ -426,8 +464,8 @@ def main():
     K = 3
 
     # generate train/valid examples
-    train_data = generate_examples(train_path, vocab_dict, vocab_c_dict, config, "train")
-    dev_data = generate_examples(valid_path, vocab_dict, vocab_c_dict, config, "dev")
+    train_data, sen_cut_train = generate_examples(train_path, vocab_dict, vocab_c_dict, config, "train")
+    dev_data, sen_cut_dev = generate_examples(valid_path, vocab_dict, vocab_c_dict, config, "dev")
 
     #------------------------------------------------------------------------
     # training process begins
@@ -458,15 +496,17 @@ def main():
         # building batch data
         # batch_xxx_data is a list of batch data (len 15)
         # [dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro]
-        batch_train_data = generate_batch_data(train_data, config, "train", -1)  # -1 means random sampling
+        batch_train_data, sen_cut_batch = generate_batch_data(train_data, config, "train", -1, sen_cut_train)  # -1 means random sampling
         # dw, m_dw, qw, m_qw, dc, m_dc, qc, m_qc, cd, m_cd, a, dei, deo, dri, dro = batch_train_data
+
+        print(len(sen_cut_batch))
 
         # zero the parameter gradients
         optimizer.zero_grad()
 
         # forward pass
         dw, dc, qw, qc, cd, cd_m = extract_data(batch_train_data)
-        cand_probs = coref_model(dw, dc, qw, qc, cd, cd_m) # B x Cmax
+        cand_probs = coref_model(dw, dc, qw, qc, cd, cd_m, sen_cut_batch) # B x Cmax
 
         answer = torch.tensor(batch_train_data[10]).type(torch.LongTensor) # B x 1
         loss = criterion(cand_probs, answer)
@@ -475,7 +515,7 @@ def main():
         acc_batch = cal_acc(cand_probs, answer, batch_size)
         batch_acc_list.append(acc_batch)
         batch_loss_list.append(loss)
-        dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model)
+        dev_acc_list = evaluate_result(iter_index, config, dev_data, batch_acc_list, batch_loss_list, dev_acc_list, coref_model, sen_cut_dev)
 
         # save model
         if iter_index % config['model_save_frequency'] == 0 and len(sys.argv) > 4:

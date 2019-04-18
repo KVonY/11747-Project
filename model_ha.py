@@ -128,7 +128,7 @@ class GatedAttentionLayer(torch.nn.Module):
 # output the attention only
 class GatedAttentionAttOnly(torch.nn.Module):
     def __init__(self):
-        super(GatedAttentionLayer, self).__init__()
+        super(GatedAttentionAttOnly, self).__init__()
         self.softmax1 = nn.Softmax(dim=1)
         self.softmax2 = nn.Softmax(dim=2)
     # compute gated-attention query-aware context sequence embeddings
@@ -138,20 +138,21 @@ class GatedAttentionAttOnly(torch.nn.Module):
         context_tr = context_emb.transpose(1,2) # (batch, emb_dim, seq)
         temp = torch.matmul(query_emb, context_tr)  # (batch, seq_query, seq_context)
         # sum along the query axis -> importance of each context word in a vector
-        importance = torch.sum(temp, dim=1) # (batch, 1, seq_context)
+        importance = torch.sum(temp, dim=1) # (batch, seq_context)
+        #print(importance.shape)
         # softmax along context sequence dimension (compute prob dist over all context words)
-        return self.softmax2(importance)  # (batch, 1, seq_context)
+        return self.softmax1(importance)  # (batch, seq_context)
 
 
 # output the sentence representation that has the maximum average attention
 class MaxAttSentence(torch.nn.Module):
     def __init__(self, max_sentence_len, sentence_emb_dim):
-        super(GatedAttentionLayer, self).__init__()
+        super(MaxAttSentence, self).__init__()
         self.max_sentence_len = max_sentence_len
         self.sentence_emb_dim = sentence_emb_dim
 
     # startends: (batch, num_sentences, 2)
-    # attention: (batch, len_context, 1)
+    # attention: (batch, len_context)
     # context: (batch, len_context, emb_dim)
     def forward(self, startends, attention, context):
         # process batch by batch
@@ -162,7 +163,7 @@ class MaxAttSentence(torch.nn.Module):
             for se in sentences_se:
                 start = se[0]
                 end = se[1]
-                sum_att = torch.sum(attention[batch_id, start:end, 0]) #float
+                sum_att = torch.sum(attention[batch_id, start:end]) #float
                 if sum_att > max_sum_att:
                     max_sum_att = sum_att
                     max_sentence_se = (start, end)
@@ -228,10 +229,10 @@ class CorefQA(torch.nn.Module):
         self.context_gru_3 = BiGRU(2*hidden_size, hidden_size, batch_size)
         self.query_gru_3 = BiGRU(embedding_size, hidden_size, batch_size)
 
-        self.max_sentence = MaxAttSentence()
+        self.max_sentence = MaxAttSentence(100, 128)
 
     
-    def forward(self, context, context_char, query, query_char, candidate, candidate_mask):
+    def forward(self, context, context_char, query, query_char, candidate, candidate_mask, startends):
         context_embedding, query_embedding = self.embedding(
             context, context_char, 
             query, query_char, 
@@ -241,11 +242,14 @@ class CorefQA(torch.nn.Module):
         # first GA layer
         context_out_0 = self.context_gru_0(context_embedding)
         query_out_0 = self.query_gru_0(query_embedding)
-        attention = self.gaao(context_out_1, query_out_1)
+        attention = self.gaao(context_out_0, query_out_0)
 
         #-----------------------------------------------------
         # max sentence selection
         max_sentence = self.max_sentence(startends, attention, context_out_0) # (batch, max_sentence_len, emb_size)
+
+        print(max_sentence)
+        return max_sentence
 
         #-----------------------------------------------------
         context_out_2 = self.context_gru_2(layer_out_1)

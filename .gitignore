@@ -1,3 +1,5 @@
 data/wikihop
 GloVe
 model
+bert_test.py
+bert_test_basic.py

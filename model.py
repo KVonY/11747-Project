@@ -174,7 +174,7 @@ class CorefQA(torch.nn.Module):
         self.query_gru_3 = BiGRU(embedding_size, hidden_size, batch_size)
 
     
-    def forward(self, context, context_char, query, query_char, candidate, candidate_mask):
+    def forward(self, context, context_char, query, query_char, candidate, candidate_mask, sen_cut_batch):
         context_embedding, query_embedding = self.embedding(
             context, context_char, 
             query, query_char, 
