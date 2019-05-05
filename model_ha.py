@@ -229,7 +229,7 @@ class CorefQA(torch.nn.Module):
         self.context_gru_3 = BiGRU(2*hidden_size, hidden_size, batch_size)
         self.query_gru_3 = BiGRU(embedding_size, hidden_size, batch_size)
 
-        self.max_sentence = MaxAttSentence(100, 128)
+        self.max_sentence = MaxAttSentence(30, 128)
 
     
     def forward(self, context, context_char, query, query_char, candidate, candidate_mask, startends):
