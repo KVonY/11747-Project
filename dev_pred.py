@@ -381,7 +381,7 @@ def extract_data(batch_data):
 
 
 def evaluate_result(config, dev_data, coref_model, sen_cut_dev):
-    n_batch_data = int(len(dev_data) / config['batch_size']) - 1
+    n_batch_data = int(len(dev_data) / config['batch_size'])
     acc_dev_list = []
 
     acc_ans_list = []
